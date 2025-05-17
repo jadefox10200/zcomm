@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+// Package name for generated code (optional, adjust as needed).
+package zpc;
+
+// Message for sending a dispatch.
+message SendDispatch {
+  string from_zid = 1;
+  string to_zid = 2;
+  string dispatch_uuid = 3;
+  string conversation_id = 4;
+  uint32 seq_no = 5;
+  string ephemeral_pub_key = 6;
+  bytes signature = 7;
+  bytes body = 8;
+  string nonce = 9;
+}
+
+// Message for receiving a dispatch.
+message ReceiveDispatch {
+  string client_zid = 1;
+  string last_seen_uuid = 2;
+}
+
+// Message for a new dispatch.
+message NewDispatch {
+  string dispatch_uuid = 1;
+  string from_zid = 2;
+  string conversation_id = 3;
+  uint64 timestamp = 4;
+}
+
+// Message for fetching public keys.
+message FetchPublicKeys {
+  repeated string target_zids = 1;
+}
+
+// Message for verifying a signature.
+message VerifySignature {
+  string dispatch_uuid = 1;
+  string from_zid = 2;
+  bytes signature = 3;
+}
