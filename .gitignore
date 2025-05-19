@@ -10,6 +10,7 @@ cmd/client/zcomm_storage/*
 cmd/client/z*/
 data
 /RPC-FAIL/
+users/*
 
 # IDEs
 .vscode/
