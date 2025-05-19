@@ -21,6 +21,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jadefox10200/zcomm/core"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/curve25519"
 )
@@ -40,6 +41,10 @@ type App struct {
 	// Cache for online status
 	lastOnlineCheck time.Time
 	isOnlineCached  bool
+
+	// Channels to control background goroutines
+	stopSendReceive chan struct{}
+	stopPollNotifs  chan struct{}
 }
 
 // NewApp initializes a new App instance.
@@ -50,8 +55,9 @@ func NewApp() *App {
 // startup is called when the app starts.
 func (app *App) startup(ctx context.Context) {
 	app.ctx = ctx
-	go app.sendAndReceive()
-	go app.pollNotifications()
+	// Initialize stop channels
+	app.stopSendReceive = make(chan struct{})
+	app.stopPollNotifs = make(chan struct{})
 }
 
 // Initialize HTTP client with custom TLS configuration.
@@ -198,10 +204,17 @@ func (app *App) SelectZID(zid string) error {
 	if err != nil {
 		return fmt.Errorf("decrypt identity: %w", err)
 	}
+	app.mu.Lock()
 	app.ZID = zid
 	app.EdPriv = edPriv
 	app.ECDHPriv = ecdhPriv
 	app.Storage = storage
+	app.mu.Unlock()
+
+	// Start background goroutines
+	go app.sendAndReceive()
+	go app.pollNotifications()
+
 	return nil
 }
 
@@ -248,6 +261,19 @@ func (app *App) ClearKeys() {
 }
 
 func (app *App) Logout() error {
+	// Signal background goroutines to stop
+	app.mu.Lock()
+	if app.stopSendReceive != nil {
+		close(app.stopSendReceive)
+		app.stopSendReceive = make(chan struct{}) // Reset for next login
+	}
+	if app.stopPollNotifs != nil {
+		close(app.stopPollNotifs)
+		app.stopPollNotifs = make(chan struct{}) // Reset for next login
+	}
+	app.mu.Unlock()
+
+	// Clear keys and close storage
 	app.ClearKeys()
 	if s, ok := app.Storage.(*SQLiteStorage); ok {
 		return s.db.Close()
@@ -903,29 +929,38 @@ func updateDeliveredDispatch(app *App, dispID string, disp core.Dispatch) error 
 	return nil
 }
 
-func pollNotifications(app *App) {
-	backoff := 5 * time.Second
-	maxBackoff := 60 * time.Second
-
+func (app *App) pollNotifications() {
 	for {
-		if !app.IsOnline() {
-			// fmt.Println("Offline: Skipping notification fetch")
-			time.Sleep(backoff)
-			backoff = min(maxBackoff, backoff*2)
-			continue
-		}
-		if err := processPendingNotifications(app); err != nil {
-			fmt.Fprintf(os.Stderr, "Process pending notifications: %v\n", err)
-		}
-		notifications, _, err := fetchNotifications(app)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Fetch notifications: %v\n", err)
+		select {
+		case <-app.stopPollNotifs:
+			runtime.LogInfo(app.ctx, "Stopping pollNotifications goroutine")
+			return
+		default:
+			if app.ZID == "" {
+				time.Sleep(1 * time.Second)
+				continue
+			}
+			// Existing pollNotifications logic
+			notifs, status, err := app.fetchNotifications()
+			if err != nil {
+				runtime.LogError(app.ctx, fmt.Sprintf("Fetch notifications: %v", err))
+			}
+			if status == http.StatusOK {
+				for _, notif := range notifs {
+					switch notif.Type {
+					case "delivery":
+						if err := app.Storage.MoveMessage("awaiting", "out", notif.DispatchID, "delivered"); err != nil {
+							runtime.LogError(app.ctx, fmt.Sprintf("Move dispatch %s to out: %v", notif.DispatchID, err))
+						}
+					case "read":
+						if err := app.Storage.MoveMessage("awaiting", "out", notif.DispatchID, "read"); err != nil {
+							runtime.LogError(app.ctx, fmt.Sprintf("Move dispatch %s to out: %v", notif.DispatchID, err))
+						}
+					}
+				}
+			}
 			time.Sleep(5 * time.Second)
-			continue
 		}
-
-		handleIncomingNotifications(app, notifications)
-		time.Sleep(5 * time.Second)
 	}
 }
 
@@ -1005,148 +1040,180 @@ func processPendingNotifications(app *App) error {
 	return nil
 }
 
-func (app *App) pollNotifications() {
-	backoff := 5 * time.Second
-	maxBackoff := 60 * time.Second
+// func (app *App) pollNotifications() {
+// 	backoff := 5 * time.Second
+// 	maxBackoff := 60 * time.Second
 
-	for {
-		if !app.IsOnline() {
-			// fmt.Println("Offline: Skipping notification fetch")
-			time.Sleep(backoff)
-			backoff = min(maxBackoff, backoff*2)
-			continue
-		}
-		if err := processPendingNotifications(app); err != nil {
-			fmt.Fprintf(os.Stderr, "Process pending notifications: %v\n", err)
-		}
-		notifications, _, err := fetchNotifications(app)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Fetch notifications: %v\n", err)
-			time.Sleep(5 * time.Second)
-			continue
-		}
+// 	for {
+// 		if !app.IsOnline() {
+// 			// fmt.Println("Offline: Skipping notification fetch")
+// 			time.Sleep(backoff)
+// 			backoff = min(maxBackoff, backoff*2)
+// 			continue
+// 		}
+// 		if err := processPendingNotifications(app); err != nil {
+// 			fmt.Fprintf(os.Stderr, "Process pending notifications: %v\n", err)
+// 		}
+// 		notifications, _, err := fetchNotifications(app)
+// 		if err != nil {
+// 			fmt.Fprintf(os.Stderr, "Fetch notifications: %v\n", err)
+// 			time.Sleep(5 * time.Second)
+// 			continue
+// 		}
 
-		handleIncomingNotifications(app, notifications)
-		time.Sleep(5 * time.Second)
-	}
-}
+// 		handleIncomingNotifications(app, notifications)
+// 		time.Sleep(5 * time.Second)
+// 	}
+// }
 
 func (app *App) sendAndReceive() {
 	backoff := 5 * time.Second
 	maxBackoff := 60 * time.Second
-
 	for {
-		// Check if online before fetching or sending
-		if !app.IsOnline() {
-			// fmt.Println("Offline: Skipping fetch and send operations")
-			time.Sleep(backoff)
-			continue
-		}
-
-		dispatches, statusCode, err := app.fetchDispatches()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Fetch dispatches: %v\n", err)
-			time.Sleep(backoff)
-			backoff = min(maxBackoff, backoff*2)
-			continue
-		}
-
-		if statusCode == http.StatusNoContent {
-			// No new dispatches
-			backoff = 5 * time.Second
-		} else if statusCode != http.StatusOK {
-			fmt.Fprintf(os.Stderr, "Server error: status %d\n", statusCode)
-			time.Sleep(backoff)
-			backoff = min(maxBackoff, backoff*2)
-			continue
-		} else {
-			// Process incoming dispatches
-			for _, disp := range dispatches {
-				// fmt.Printf("Received dispatch from %s at %d\n", disp.From, disp.Timestamp)
-				keys, err := app.fetchPublicKeys(disp.From)
+		select {
+		case <-app.stopSendReceive:
+			runtime.LogInfo(app.ctx, "Stopping sendAndReceive goroutine")
+			return
+		default:
+			if app.ZID == "" {
+				time.Sleep(1 * time.Second)
+				continue
+			}
+			// Existing sendAndReceive logic
+			pendingNotifs, err := app.Storage.LoadPendingNotifications()
+			if err != nil {
+				runtime.LogError(app.ctx, fmt.Sprintf("Load pending notifications: %v", err))
+			}
+			for _, notif := range pendingNotifs {
+				data, err := json.Marshal(notif)
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "Fetch sender keys for %s: %v\n", disp.From, err)
+					runtime.LogError(app.ctx, fmt.Sprintf("Marshal notification: %v", err))
 					continue
 				}
-
-				valid, err := verifyDispatch(disp, keys)
-				if !valid || err != nil {
-					fmt.Fprintf(os.Stderr, "Verification failed for dispatch from %s: %v\n", disp.From, err)
-					continue
-				}
-
-				if err := app.storeDispatchAndUpdateConversation(disp); err != nil {
-					fmt.Fprintf(os.Stderr, "Store dispatch from %s: %v\n", disp.From, err)
-					continue
-				}
-				// fmt.Println("Sending delivery notification")
-				handleSendDelivery(app, disp)
-			}
-			backoff = 5 * time.Second
-		}
-
-		// Send queued dispatches from OUT
-		outDispatches, err := app.Storage.LoadBasketDispatches("out")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Load out basket: %v\n", err)
-			time.Sleep(backoff)
-			continue
-		}
-
-		for _, basketDisp := range outDispatches {
-			disp, err := app.Storage.GetDispatch(basketDisp.DispatchID)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Load dispatch %s: %v\n", basketDisp.DispatchID, err)
-				continue
-			}
-			// fmt.Printf("Got dispatch for sending with time: %s\n", dateTimeFromUnix(disp.Timestamp))
-			// Decrypt body for sending
-			disp.Body, err = app.decryptLocalDispatch(&disp)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Decrypt dispatch %s: %v\n", disp.UUID, err)
-				if err := app.Storage.MoveMessage("out", "failed", disp.UUID, ""); err != nil {
-					fmt.Fprintf(os.Stderr, "Move to failed: %v\n", err)
-				}
-				continue
-			}
-
-			// fmt.Printf("Decrypted before being sent: %s\n", disp.Body)
-			// fmt.Printf("Time before being sent: %s\n", dateTimeFromUnix(disp.Timestamp))
-			// Send using stored details
-			err = EncryptAndSendDispatch(app, &disp)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Send dispatch %s to %s: %v\n", disp.UUID, disp.To, err)
-				if err := app.Storage.MoveMessage("out", "failed", disp.UUID, ""); err != nil {
-					fmt.Fprintf(os.Stderr, "Move to failed: %v\n", err)
-				}
-				continue
-			}
-
-			// Update dispatch fields
-			if err := app.Storage.UpdateDispatchFields(disp.UUID, disp.Nonce, disp.EphemeralPubKey, disp.Signature); err != nil {
-				fmt.Fprintf(os.Stderr, "Update dispatch fields %s: %v\n", disp.UUID, err)
-				continue
-			}
-
-			//if this is an ack, remove from out, else we expect an answer.
-			if disp.IsEnd {
-				err = app.Storage.RemoveMessage("out", disp.UUID)
+				resp, err := http.Post(serverURL+"/notification_push", "application/json", bytes.NewReader(data))
 				if err != nil {
-					fmt.Printf("Failed to remove from out: %s\n", err.Error())
+					runtime.LogError(app.ctx, fmt.Sprintf("Push notification: %v", err))
+					continue
 				}
+				resp.Body.Close()
+				if resp.StatusCode == http.StatusOK {
+					if err := app.Storage.RemovePendingNotification(notif.UUID, notif.Type); err != nil {
+						runtime.LogError(app.ctx, fmt.Sprintf("Delete pending notification: %v", err))
+					}
+				}
+			}
+
+			pendingDispatches, err := app.Storage.LoadBasket("out")
+			if err != nil {
+				runtime.LogError(app.ctx, fmt.Sprintf("Load out basket: %v", err))
+			}
+			for _, dispatchID := range pendingDispatches {
+				disp, err := app.Storage.GetDispatch(dispatchID)
+				if err != nil {
+					runtime.LogError(app.ctx, fmt.Sprintf("Load dispatch %s: %v", dispatchID, err))
+					continue
+				}
+
+				//
+				disp.Body, err = app.decryptLocalDispatch(&disp)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Decrypt dispatch %s: %v\n", disp.UUID, err)
+					if err := app.Storage.MoveMessage("out", "failed", disp.UUID, ""); err != nil {
+						fmt.Fprintf(os.Stderr, "Move to failed: %v\n", err)
+					}
+					continue
+				}
+
+				err = EncryptAndSendDispatch(app, &disp)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Send dispatch %s to %s: %v\n", disp.UUID, disp.To, err)
+					if err := app.Storage.MoveMessage("out", "failed", disp.UUID, ""); err != nil {
+						fmt.Fprintf(os.Stderr, "Move to failed: %v\n", err)
+					}
+					continue
+				}
+
+				// Update dispatch fields
+				if err := app.Storage.UpdateDispatchFields(disp.UUID, disp.Nonce, disp.EphemeralPubKey, disp.Signature); err != nil {
+					fmt.Fprintf(os.Stderr, "Update dispatch fields %s: %v\n", disp.UUID, err)
+					continue
+				}
+
+				//if this is an ack, remove from out, else we expect an answer.
+				if disp.IsEnd {
+					err = app.Storage.RemoveMessage("out", disp.UUID)
+					if err != nil {
+						fmt.Printf("Failed to remove from out: %s\n", err.Error())
+					}
+				} else {
+
+					if err := app.Storage.MoveMessage("out", "awaiting", disp.UUID, "sent"); err != nil {
+						fmt.Fprintf(os.Stderr, "Move to awaiting: %v\n", err)
+						continue
+					}
+				}
+
+				// data, err := json.Marshal(disp)
+				// if err != nil {
+				// 	runtime.LogError(app.ctx, fmt.Sprintf("Marshal dispatch: %v", err))
+				// 	continue
+				// }
+				// resp, err := http.Post(serverURL+"/send", "application/json", bytes.NewReader(data))
+				// if err != nil {
+				// 	runtime.LogError(app.ctx, fmt.Sprintf("Send dispatch: %v", err))
+				// 	continue
+				// }
+				// resp.Body.Close()
+				// if resp.StatusCode == http.StatusOK {
+				// 	if err := app.Storage.MoveMessage("out", "awaiting", dispatchID, ""); err != nil {
+				// 		runtime.LogError(app.ctx, fmt.Sprintf("Move dispatch to awaiting: %v", err))
+				// 	}
+				// }
+			}
+			//handle incoming dispatches:
+			dispatches, statusCode, err := app.fetchDispatches()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Fetch dispatches: %v\n", err)
+				time.Sleep(backoff)
+				backoff = min(maxBackoff, backoff*2)
+				continue
+			}
+
+			if statusCode == http.StatusNoContent {
+				// No new dispatches
+				backoff = 5 * time.Second
+			} else if statusCode != http.StatusOK {
+				fmt.Fprintf(os.Stderr, "Server error: status %d\n", statusCode)
+				time.Sleep(backoff)
+				backoff = min(maxBackoff, backoff*2)
+				continue
 			} else {
+				// Process incoming dispatches
+				for _, disp := range dispatches {
+					// fmt.Printf("Received dispatch from %s at %d\n", disp.From, disp.Timestamp)
+					keys, err := app.fetchPublicKeys(disp.From)
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "Fetch sender keys for %s: %v\n", disp.From, err)
+						continue
+					}
 
-				if err := app.Storage.MoveMessage("out", "awaiting", disp.UUID, "sent"); err != nil {
-					fmt.Fprintf(os.Stderr, "Move to awaiting: %v\n", err)
-					continue
+					valid, err := verifyDispatch(disp, keys)
+					if !valid || err != nil {
+						fmt.Fprintf(os.Stderr, "Verification failed for dispatch from %s: %v\n", disp.From, err)
+						continue
+					}
+
+					if err := app.storeDispatchAndUpdateConversation(disp); err != nil {
+						fmt.Fprintf(os.Stderr, "Store dispatch from %s: %v\n", disp.From, err)
+						continue
+					}
+					// fmt.Println("Sending delivery notification")
+					handleSendDelivery(app, disp)
 				}
+				backoff = 5 * time.Second
 			}
-			// Move to awaiting
-
-			// fmt.Printf("Dispatch %s sent successfully\n", disp.UUID)
+			time.Sleep(5 * time.Second)
 		}
-
-		time.Sleep(backoff)
 	}
 }
 
