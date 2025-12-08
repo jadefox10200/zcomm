@@ -1,0 +1,146 @@
+.conversation-list {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: white;
+}
+
+.conversation-list.empty {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  background: white;
+}
+
+.conversation-list-header {
+  padding: 20px;
+  border-bottom: 1px solid #e0e0e0;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.conversation-list-header h2 {
+  margin: 0 0 5px 0;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.conversation-description {
+  margin: 5px 0;
+  font-size: 14px;
+  opacity: 0.9;
+}
+
+.conversation-list-header .conversation-count {
+  margin-top: 10px;
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+.conversation-list-items {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px;
+}
+
+.empty-state {
+  text-align: center;
+  color: #999;
+  padding: 60px 20px;
+}
+
+.empty-state p {
+  margin: 8px 0;
+  font-size: 16px;
+}
+
+.empty-hint {
+  font-size: 14px;
+}
+
+.conversation-item {
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  padding: 12px 15px;
+  margin-bottom: 1px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 13px;
+}
+
+.conversation-item:hover {
+  border-color: #667eea;
+  background: #f9f9ff;
+}
+
+.conversation-item.selected {
+  border-color: #667eea;
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.08) 0%, rgba(118, 75, 162, 0.08) 100%);
+  box-shadow: 0 2px 6px rgba(102, 126, 234, 0.12);
+}
+
+.conversation-item.unread {
+  border-left: 3px solid #667eea;
+  padding-left: 12px;
+}
+
+.conversation-item.unread.selected {
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.08) 0%, rgba(118, 75, 162, 0.08) 100%);
+}
+
+.conversation-item-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.conversation-partner {
+  font-weight: 600;
+  color: #333;
+  min-width: 140px;
+  flex-shrink: 0;
+}
+
+.conversation-separator {
+  color: #ccc;
+  font-weight: 300;
+  flex-shrink: 0;
+}
+
+.conversation-date-range {
+  font-size: 13px;
+  color: #666;
+  min-width: 140px;
+  flex-shrink: 0;
+}
+
+.conversation-subject {
+  color: #333;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-miv-count {
+  font-size: 13px;
+  color: #666;
+  min-width: 60px;
+  flex-shrink: 0;
+}
+
+.unread-badge-inline {
+  background: #667eea;
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 10px;
+  min-width: 18px;
+  text-align: center;
+  margin-left: 8px;
+  flex-shrink: 0;
+}

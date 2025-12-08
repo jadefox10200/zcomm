@@ -1,24 +1,57 @@
-#Go build files:
-/bin/
-/pkg/
-/*.exe
-/*.out
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
 *.test
-cmd/client/client
-cmd/server/server
-cmd/client/zcomm_storage/*
-cmd/client/z*/
-data
-/RPC-FAIL/
-client/zcomm-client/users/*
+*.out
+/bin
+/pkg
+vendor/
+
+# Backend build
+backend/missiv
+backend/missiv-server
+backend/tmp/
+
+# Frontend
+frontend/node_modules/
+frontend/build/
+frontend/dist/
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # IDEs
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
 
-# Dependency dirs
-vendor/
-
-# OS junk
+# OS
 .DS_Store
 Thumbs.db
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+data/
+
+# Temp files
+/tmp/
+backend/backend
+
+# Uploads
+uploads/
+backend/uploads/
+frontend/uploads/
