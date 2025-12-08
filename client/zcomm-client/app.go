@@ -356,16 +356,17 @@ func (app *App) GetBasketDispatches(basket string) ([]core.BasketDispatch, error
 	return app.Storage.LoadBasketDispatches(basket)
 }
 
-func (app *App) GetDispatch(dispatchID string) (core.Dispatch, string, error) {
+func (app *App) GetDispatch(dispatchID string) (core.Dispatch, error) {
 	disp, err := app.Storage.GetDispatch(dispatchID)
 	if err != nil {
-		return disp, "", fmt.Errorf("get dispatch: %w", err)
+		return disp, fmt.Errorf("get dispatch: %w", err)
 	}
 	body, err := app.decryptLocalDispatch(&disp)
 	if err != nil {
-		return disp, "", fmt.Errorf("decrypt dispatch: %w", err)
+		return disp, fmt.Errorf("decrypt dispatch: %w", err)
 	}
-	return disp, body, nil
+	disp.Body = body
+	return disp, nil
 }
 
 func (app *App) HandleDispatchAction(basket, dispatchID, action, replyBody string, isEnd bool) error {

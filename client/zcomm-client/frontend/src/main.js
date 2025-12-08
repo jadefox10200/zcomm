@@ -1,10 +1,14 @@
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('DOM fully loaded, initializing ZComm Messenger');
+
     // State
     let currentZID = null;
     let currentUsername = null;
-    let currentBasket = 'inbox';
+    let currentBasket = null;
     let currentConversation = null;
+    let currentDispatch = null;
     let isArchivedView = false;
+    let currentTab = 'compose';
 
     // UI Elements
     const screens = {
@@ -30,20 +34,34 @@ document.addEventListener('DOMContentLoaded', () => {
         onlineStatus: document.getElementById('online-status'),
         currentZID: document.getElementById('current-zid'),
         logoutBtn: document.getElementById('app-logout-btn'),
-        basketTabs: document.getElementById('basket-tabs').children,
+        sidebarTabs: document.getElementById('sidebar-tabs').children,
         basketCounts: {
             inbox: document.getElementById('inbox-count'),
             pending: document.getElementById('pending-count'),
             out: document.getElementById('out-count'),
             awaiting: document.getElementById('awaiting-count')
         },
+        mainContent: document.getElementById('main-content'),
+        composeContent: document.getElementById('compose-content'),
         basketContent: document.getElementById('basket-content'),
         basketTitle: document.getElementById('basket-title'),
         dispatchList: document.getElementById('dispatch-list'),
+        dispatchContent: document.getElementById('dispatch-content'),
+        dispatchActions: document.getElementById('dispatch-actions'),
+        dispatchDetails: document.getElementById('dispatch-details'),
+        replyContent: document.getElementById('reply-content'),
+        replyRecipient: document.getElementById('reply-recipient'),
+        replySubject: document.getElementById('reply-subject'),
+        replyBody: document.getElementById('reply-body'),
+        replyConvID: document.getElementById('reply-conv-id'),
+        sendReplyBtn: document.getElementById('send-reply-btn'),
+        cancelReplyBtn: document.getElementById('cancel-reply-btn'),
         conversationContent: document.getElementById('conversation-content'),
         conversationTitle: document.getElementById('conversation-title'),
         conversationMessages: document.getElementById('conversation-messages'),
         archiveConvBtn: document.getElementById('archive-conv-btn'),
+        contactsContent: document.getElementById('contacts-content'),
+        contactsList: document.getElementById('contacts-list'),
         activeConvsBtn: document.getElementById('active-convs-btn'),
         archivedConvsBtn: document.getElementById('archived-convs-btn'),
         conversationList: document.getElementById('conversation-list'),
@@ -59,14 +77,21 @@ document.addEventListener('DOMContentLoaded', () => {
         sendEndDispatchBtn: document.getElementById('send-end-dispatch-btn')
     };
 
+    // Debug: Verify UI elements
+    console.log('Login button:', loginElements.loginBtn);
+    console.log('Login error element:', loginElements.error);
+    console.log('Reply button:', appElements.sendReplyBtn);
+
     // Show specific screen
     function showScreen(screen) {
+        console.log(`Switching to screen: ${screen}`);
         Object.values(screens).forEach(s => s.classList.add('hidden'));
         screens[screen].classList.remove('hidden');
     }
 
     // Display error message
     function showError(element, message) {
+        console.log(`Showing error: ${message}`);
         element.textContent = message;
         element.classList.remove('hidden');
         setTimeout(() => element.classList.add('hidden'), 5000);
@@ -96,43 +121,53 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Render content based on selected tab
+    async function renderContent(tab) {
+        currentTab = tab;
+        currentDispatch = null;
+        appElements.composeContent.classList.add('hidden');
+        appElements.basketContent.classList.add('hidden');
+        appElements.dispatchContent.classList.add('hidden');
+        appElements.replyContent.classList.add('hidden');
+        appElements.conversationContent.classList.add('hidden');
+        appElements.contactsContent.classList.add('hidden');
+        Array.from(appElements.sidebarTabs).forEach(t => {
+            t.classList.toggle('tab-active', t.dataset.tab === tab);
+            t.classList.toggle('tab-inactive', t.dataset.tab !== tab);
+        });
+
+        if (tab === 'compose') {
+            appElements.composeContent.classList.remove('hidden');
+        } else if (['inbox', 'pending', 'out', 'awaiting'].includes(tab)) {
+            await renderBasket(tab);
+        } else if (tab === 'contacts') {
+            await renderContactsMain();
+        }
+    }
+
     // Render baskets
     async function renderBasket(basket) {
         currentBasket = basket;
+        currentDispatch = null;
         appElements.basketContent.classList.remove('hidden');
-        appElements.conversationContent.classList.add('hidden');
+        appElements.dispatchContent.classList.add('hidden');
+        appElements.replyContent.classList.add('hidden');
         appElements.basketTitle.textContent = basket.charAt(0).toUpperCase() + basket.slice(1);
         appElements.dispatchList.innerHTML = '';
-        Array.from(appElements.basketTabs).forEach(tab => {
-            tab.classList.toggle('tab-active', tab.dataset.tab === basket);
-            tab.classList.toggle('tab-inactive', tab.dataset.tab !== basket);
-        });
 
         try {
             const dispatches = await window.go.main.App.GetBasketDispatches(basket);
+            console.log('Dispatches for basket', basket, dispatches);
             dispatches.forEach(disp => {
+                console.log('Dispatch object:', disp);
                 const div = document.createElement('div');
-                div.className = 'border p-4 rounded';
+                div.className = 'dispatch-row border-b';
                 div.innerHTML = `
-                    <p><strong>From:</strong> ${disp.From}</p>
-                    <p><strong>Subject:</strong> ${disp.Subject}</p>
-                    <p><strong>Body:</strong> ${disp.Body}</p>
-                    <p><strong>Timestamp:</strong> ${new Date(disp.Timestamp * 1000).toLocaleString()}</p>
-                    <div class="flex space-x-2 mt-2">
-                        ${basket !== 'out' ? `
-                            <button class="action-btn bg-blue-500 text-white p-1 rounded hover:bg-blue-600" data-action="answer">Answer</button>
-                            <button class="action-btn bg-green-500 text-white p-1 rounded hover:bg-green-600" data-action="ack">Ack</button>
-                            <button class="action-btn bg-yellow-500 text-white p-1 rounded hover:bg-yellow-600" data-action="pending">Pending</button>
-                            <button class="action-btn bg-red-500 text-white p-1 rounded hover:bg-red-600" data-action="decline">Decline</button>
-                        ` : ''}
-                        ${basket === 'out' ? `
-                            <button class="action-btn bg-red-500 text-white p-1 rounded hover:bg-red-600" data-action="pullback">Pull Back</button>
-                        ` : ''}
-                    </div>
+                    <span class="w-1/3 truncate">${disp.from_zid || 'unknown'}</span>
+                    <span class="w-1/3 truncate">${disp.subject || 'No Subject'}</span>
+                    <span class="w-1/3 text-right">${disp.timestamp ? new Date(disp.timestamp * 1000).toLocaleString() : 'unknown'}</span>
                 `;
-                div.querySelectorAll('.action-btn').forEach(btn => {
-                    btn.addEventListener('click', () => handleDispatchAction(disp.DispatchID, btn.dataset.action));
-                });
+                div.addEventListener('click', () => renderDispatch(disp.dispatch_id));
                 appElements.dispatchList.appendChild(div);
             });
         } catch (err) {
@@ -140,17 +175,111 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Handle dispatch actions
-    async function handleDispatchAction(dispatchID, action) {
+    // Render a single dispatch
+    async function renderDispatch(dispatchID) {
+        currentDispatch = dispatchID;
+        appElements.composeContent.classList.add('hidden');
+        appElements.basketContent.classList.add('hidden');
+        appElements.replyContent.classList.add('hidden');
+        appElements.conversationContent.classList.add('hidden');
+        appElements.contactsContent.classList.add('hidden');
+        appElements.dispatchContent.classList.remove('hidden');
+        appElements.dispatchDetails.innerHTML = '';
+        appElements.dispatchActions.innerHTML = '';
+
         try {
-            let replyBody = '';
-            if (action === 'answer') {
-                replyBody = prompt('Enter reply body:') || '';
+            const disp = await window.go.main.App.GetDispatch(dispatchID);
+            console.log('Full dispatch:', disp);
+            appElements.dispatchDetails.innerHTML = `
+                <p><strong>From:</strong> ${disp.from_zid || 'unknown'}</p>
+                <p><strong>To:</strong> ${disp.to_zid || 'unknown'}</p>
+                <p><strong>Subject:</strong> ${disp.subject || 'No Subject'}</p>
+                <p><strong>Body:</strong> ${disp.body || ''}</p>
+                <p><strong>Timestamp:</strong> ${disp.timestamp ? new Date(disp.timestamp * 1000).toLocaleString() : 'unknown'}</p>
+                <p><strong>Conversation ID:</strong> ${disp.conversation_id || 'none'}</p>
+            `;
+            // Action buttons
+            if (currentBasket !== 'out') {
+                appElements.dispatchActions.innerHTML = `
+                    <button class="action-btn bg-blue-500 text-white p-2 rounded hover:bg-blue-600" data-action="answer">Answer</button>
+                    <button class="action-btn bg-green-500 text-white p-2 rounded hover:bg-green-600" data-action="ack">Ack</button>
+                    <button class="action-btn bg-yellow-500 text-white p-2 rounded hover:bg-yellow-600" data-action="pending">Pending</button>
+                    <button class="action-btn bg-red-500 text-white p-2 rounded hover:bg-red-600" data-action="decline">Decline</button>
+                `;
+            } else {
+                appElements.dispatchActions.innerHTML = `
+                    <button class="action-btn bg-red-500 text-white p-2 rounded hover:bg-red-600" data-action="pullback">Pull Back</button>
+                `;
             }
+            appElements.dispatchActions.querySelectorAll('.action-btn').forEach(btn => {
+                btn.addEventListener('click', () => handleDispatchAction(dispatchID, btn.dataset.action, disp));
+            });
+        } catch (err) {
+            console.error('Failed to load dispatch:', err);
+            appElements.dispatchDetails.innerHTML = '<p class="text-red-500">Failed to load dispatch</p>';
+        }
+    }
+
+    // Handle dispatch actions
+    async function handleDispatchAction(dispatchID, action, dispatch) {
+        try {
+            if (action === 'answer') {
+                // Show reply form
+                appElements.dispatchContent.classList.add('hidden');
+                appElements.replyContent.classList.remove('hidden');
+                // Pre-fill form
+                appElements.replyRecipient.value = dispatch.from_zid || '';
+                appElements.replyConvID.value = dispatch.conversation_id || '';
+                appElements.replySubject.value = `Re: ${dispatch.subject || 'No Subject'}`;
+                appElements.replyBody.value = '';
+                // Focus on body
+                appElements.replyBody.focus();
+                // Set up send and cancel handlers
+                const sendReply = async () => {
+                    const replyBody = appElements.replyBody.value.trim();
+                    if (!replyBody) {
+                        alert('Reply body is required');
+                        return;
+                    }
+                    try {
+                        await window.go.main.App.HandleDispatchAction(currentBasket, dispatchID, action, replyBody, false);
+                        appElements.replyContent.classList.add('hidden');
+                        appElements.basketContent.classList.remove('hidden');
+                        await renderBasket(currentBasket);
+                        await updateBasketCounts();
+                        currentDispatch = null;
+                    } catch (err) {
+                        console.error('Failed to send reply:', err);
+                        alert('Failed to send reply: ' + err.message);
+                    }
+                };
+                const cancelReply = () => {
+                    appElements.replyContent.classList.add('hidden');
+                    appElements.dispatchContent.classList.remove('hidden');
+                };
+                // Remove existing listeners to prevent duplicates
+                const sendBtn = appElements.sendReplyBtn.cloneNode(true);
+                const cancelBtn = appElements.cancelReplyBtn.cloneNode(true);
+                appElements.sendReplyBtn.replaceWith(sendBtn);
+                appElements.cancelReplyBtn.replaceWith(cancelBtn);
+                sendBtn.addEventListener('click', sendReply);
+                cancelBtn.addEventListener('click', cancelReply);
+                // Add Enter key support for sending
+                appElements.replyBody.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' && e.ctrlKey) {
+                        sendReply();
+                    }
+                });
+                return; // Wait for user to submit or cancel
+            }
+            // Other actions (ack, pending, decline, pullback)
             const isEnd = action === 'ack';
-            await window.go.main.App.HandleDispatchAction(currentBasket, dispatchID, action, replyBody, isEnd);
+            await window.go.main.App.HandleDispatchAction(currentBasket, dispatchID, action, '', isEnd);
             await renderBasket(currentBasket);
             await updateBasketCounts();
+            appElements.dispatchContent.classList.add('hidden');
+            appElements.basketContent.classList.remove('hidden');
+            currentDispatch = null;
         } catch (err) {
             console.error(`Failed to handle action ${action}:`, err);
         }
@@ -184,7 +313,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // Render a single conversation
     async function renderConversation(conID) {
         currentConversation = conID;
+        appElements.composeContent.classList.add('hidden');
         appElements.basketContent.classList.add('hidden');
+        appElements.dispatchContent.classList.add('hidden');
+        appElements.replyContent.classList.add('hidden');
+        appElements.contactsContent.classList.add('hidden');
         appElements.conversationContent.classList.remove('hidden');
         appElements.conversationTitle.textContent = `Conversation: ${conID}`;
         appElements.conversationMessages.innerHTML = '';
@@ -197,10 +330,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 const div = document.createElement('div');
                 div.className = 'border p-4 rounded';
                 div.innerHTML = `
-                    <p><strong>From:</strong> ${disp.From}</p>
-                    <p><strong>Subject:</strong> ${disp.Subject}</p>
-                    <p><strong>Body:</strong> ${disp.Body}</p>
-                    <p><strong>Timestamp:</strong> ${new Date(disp.Timestamp * 1000).toLocaleString()}</p>
+                    <p><strong>From:</strong> ${disp.from_zid || 'unknown'}</p>
+                    <p><strong>Subject:</strong> ${disp.subject || 'No Subject'}</p>
+                    <p><strong>Body:</strong> ${disp.body || ''}</p>
+                    <p><strong>Timestamp:</strong> ${disp.timestamp ? new Date(disp.timestamp * 1000).toLocaleString() : 'unknown'}</p>
                 `;
                 appElements.conversationMessages.appendChild(div);
             });
@@ -209,7 +342,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Render contacts
+    // Render contacts (sidebar)
     async function renderContacts() {
         appElements.contactList.innerHTML = '';
         try {
@@ -225,6 +358,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     try {
                         await window.go.main.App.RemoveContact(contact.Alias);
                         renderContacts();
+                        if (currentTab === 'contacts') {
+                            renderContactsMain();
+                        }
                     } catch (err) {
                         console.error('Failed to remove contact:', err);
                     }
@@ -236,8 +372,46 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Render contacts (main content)
+    async function renderContactsMain() {
+        appElements.contactsContent.classList.remove('hidden');
+        appElements.contactsList.innerHTML = '';
+        try {
+            const contacts = await window.go.main.App.ListContacts();
+            contacts.forEach(contact => {
+                const div = document.createElement('div');
+                div.className = 'flex justify-between p-2 bg-gray-200 rounded';
+                div.innerHTML = `
+                    <span>${contact.Alias} (${contact.ZID})</span>
+                    <button class="bg-red-500 text-white p-1 rounded hover:bg-red-600">Remove</button>
+                `;
+                div.querySelector('button').addEventListener('click', async () => {
+                    try {
+                        await window.go.main.App.RemoveContact(contact.Alias);
+                        renderContacts();
+                        renderContactsMain();
+                    } catch (err) {
+                        console.error('Failed to remove contact:', err);
+                    }
+                });
+                appElements.contactsList.appendChild(div);
+            });
+        } catch (err) {
+            console.error('Failed to load contacts:', err);
+        }
+    }
+
     // Login handler
     loginElements.loginBtn.addEventListener('click', async () => {
+        console.log('Login button clicked');
+        if (!loginElements.username || !loginElements.password || !loginElements.error) {
+            console.error('Login elements missing:', {
+                username: loginElements.username,
+                password: loginElements.password,
+                error: loginElements.error
+            });
+            return;
+        }
         const username = loginElements.username.value.trim();
         const password = loginElements.password.value;
         if (!username || !password) {
@@ -245,17 +419,28 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         try {
+            console.log('Attempting login with username:', username);
+            if (!window.go || !window.go.main || !window.go.main.App) {
+                throw new Error('Wails bindings not initialized');
+            }
             const zids = await window.go.main.App.Login(username, password);
+            console.log('Login successful, ZIDs:', zids);
             currentUsername = username;
+            if (!zidElements.select) {
+                console.error('ZID select element missing');
+                return;
+            }
             zidElements.select.innerHTML = zids.map(zid => `<option value="${zid}">${zid}</option>`).join('');
             showScreen('zid');
         } catch (err) {
+            console.error('Login failed:', err);
             showError(loginElements.error, 'Login failed: ' + err.message);
         }
     });
 
     // Create account handler
     loginElements.createAccountBtn.addEventListener('click', async () => {
+        console.log('Create account button clicked');
         const username = loginElements.username.value.trim();
         const password = loginElements.password.value;
         if (!username || !password) {
@@ -268,12 +453,14 @@ document.addEventListener('DOMContentLoaded', () => {
             loginElements.username.value = '';
             loginElements.password.value = '';
         } catch (err) {
+            console.error('Create account failed:', err);
             showError(loginElements.error, 'Create account failed: ' + err.message);
         }
     });
 
     // Select ZID handler
-    zidElements.selectBtn.addEventListener('click', async () => {
+    async function selectZID() {
+        console.log('Select ZID button clicked');
         const zid = zidElements.select.value;
         if (!zid) {
             showError(zidElements.error, 'Please select a ZID');
@@ -286,38 +473,51 @@ document.addEventListener('DOMContentLoaded', () => {
             showScreen('app');
             updateOnlineStatus();
             updateBasketCounts();
-            renderBasket('inbox');
+            renderContent('compose');
             renderConversations(false);
             renderContacts();
         } catch (err) {
+            console.error('Failed to select ZID:', err);
             showError(zidElements.error, 'Failed to select ZID: ' + err.message);
+        }
+    }
+
+    zidElements.selectBtn.addEventListener('click', selectZID);
+    zidElements.select.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            selectZID();
         }
     });
 
     // Create ZID handler
     zidElements.createBtn.addEventListener('click', async () => {
+        console.log('Create ZID button clicked');
         try {
             const zid = await window.go.main.App.CreateZID(currentUsername);
             zidElements.select.innerHTML += `<option value="${zid}">${zid}</option>`;
             zidElements.select.value = zid;
             showError(zidElements.error, 'ZID created successfully');
         } catch (err) {
+            console.error('Failed to create ZID:', err);
             showError(zidElements.error, 'Failed to create ZID: ' + err.message);
         }
     });
 
     // Logout handlers
     zidElements.logoutBtn.addEventListener('click', async () => {
+        console.log('ZID screen logout button clicked');
         try {
             await window.go.main.App.Logout();
             currentZID = null;
             currentUsername = null;
             showScreen('login');
         } catch (err) {
+            console.error('Logout failed:', err);
             showError(zidElements.error, 'Logout failed: ' + err.message);
         }
     });
     appElements.logoutBtn.addEventListener('click', async () => {
+        console.log('App screen logout button clicked');
         try {
             await window.go.main.App.Logout();
             currentZID = null;
@@ -328,17 +528,27 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Basket tab handlers
-    Array.from(appElements.basketTabs).forEach(tab => {
-        tab.addEventListener('click', () => renderBasket(tab.dataset.tab));
+    // Sidebar tab handlers
+    Array.from(appElements.sidebarTabs).forEach(tab => {
+        tab.addEventListener('click', () => {
+            console.log(`Sidebar tab clicked: ${tab.dataset.tab}`);
+            renderContent(tab.dataset.tab);
+        });
     });
 
     // Conversation view handlers
-    appElements.activeConvsBtn.addEventListener('click', () => renderConversations(false));
-    appElements.archivedConvsBtn.addEventListener('click', () => renderConversations(true));
+    appElements.activeConvsBtn.addEventListener('click', () => {
+        console.log('Active conversations button clicked');
+        renderConversations(false);
+    });
+    appElements.archivedConvsBtn.addEventListener('click', () => {
+        console.log('Archived conversations button clicked');
+        renderConversations(true);
+    });
 
     // Archive conversation handler
     appElements.archiveConvBtn.addEventListener('click', async () => {
+        console.log('Archive/Unarchive button clicked');
         if (!currentConversation) return;
         try {
             const conv = await window.go.main.App.GetConversation(currentConversation);
@@ -353,6 +563,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Add contact handler
     appElements.addContactBtn.addEventListener('click', async () => {
+        console.log('Add contact button clicked');
         const alias = appElements.contactAlias.value.trim();
         const zid = appElements.contactZID.value.trim();
         if (!alias || !zid) {
@@ -364,6 +575,9 @@ document.addEventListener('DOMContentLoaded', () => {
             appElements.contactAlias.value = '';
             appElements.contactZID.value = '';
             renderContacts();
+            if (currentTab === 'contacts') {
+                renderContactsMain();
+            }
         } catch (err) {
             console.error('Failed to add contact:', err);
         }
@@ -371,6 +585,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Send dispatch handler
     async function sendDispatch(isEnd) {
+        console.log('Send dispatch button clicked, isEnd:', isEnd);
         const recipient = appElements.dispatchRecipient.value.trim();
         const subject = appElements.dispatchSubject.value.trim();
         const body = appElements.dispatchBody.value;
