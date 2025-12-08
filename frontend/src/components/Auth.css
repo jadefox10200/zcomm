@@ -3,14 +3,15 @@
   justify-content: center;
   align-items: center;
   min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #ffffff;
   padding: 20px;
 }
 
 .auth-card {
   background: white;
-  border-radius: 12px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border: 1px solid #d0d0d0;
   padding: 40px;
   max-width: 450px;
   width: 100%;
@@ -20,24 +21,24 @@
   margin: 0 0 10px 0;
   font-size: 32px;
   text-align: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: #000000;
+  font-family: Helvetica, Arial, sans-serif;
+  font-weight: 700;
 }
 
 .auth-subtitle {
   text-align: center;
-  color: #666;
+  color: #666666;
   margin: 0 0 30px 0;
   font-size: 14px;
+  font-family: Arial, Tahoma, sans-serif;
 }
 
 .auth-tabs {
   display: flex;
   gap: 10px;
   margin-bottom: 25px;
-  border-bottom: 1px solid #e0e0e0;
+  border-bottom: 1px solid #d0d0d0;
 }
 
 .auth-tabs button {
@@ -45,19 +46,20 @@
   padding: 12px;
   border: none;
   background: none;
-  color: #666;
+  color: #666666;
   font-size: 16px;
+  font-family: Helvetica, Arial, sans-serif;
   cursor: pointer;
   position: relative;
   transition: all 0.3s;
 }
 
 .auth-tabs button:hover {
-  color: #667eea;
+  color: #000000;
 }
 
 .auth-tabs button.active {
-  color: #667eea;
+  color: #000000;
   font-weight: 600;
 }
 
@@ -68,17 +70,19 @@
   left: 0;
   right: 0;
   height: 2px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #C62828;
 }
 
 .auth-error {
-  background-color: #fee;
-  color: #c33;
+  background-color: #ffe8e8;
+  color: #C62828;
   padding: 12px;
-  border-radius: 6px;
+  border-radius: 4px;
+  border: 1px solid #ffcccc;
   margin-bottom: 20px;
   text-align: center;
   font-size: 14px;
+  font-family: Arial, Tahoma, sans-serif;
 }
 
 .auth-form {
@@ -95,22 +99,25 @@
 
 .auth-form label {
   font-weight: 600;
-  color: #333;
+  color: #000000;
   font-size: 14px;
+  font-family: Helvetica, Arial, sans-serif;
 }
 
 .auth-form input {
   padding: 12px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
   font-size: 15px;
+  font-family: Arial, Tahoma, sans-serif;
+  color: #000000;
   transition: all 0.3s;
 }
 
 .auth-form input:focus {
   outline: none;
-  border-color: #667eea;
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  border-color: #000000;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);
 }
 
 .auth-form .btn {
@@ -126,23 +133,27 @@
 }
 
 .auth-form .btn-secondary {
-  background: #6c757d;
+  background: #666666;
+  color: #ffffff;
+  border: 1px solid #666666;
   margin-top: 10px;
 }
 
 .auth-form .btn-secondary:hover {
-  background: #5a6268;
+  background: #4a4a4a;
+  border-color: #4a4a4a;
 }
 
 .auth-form .btn-link {
   background: none;
-  color: #667eea;
+  color: #000000;
   padding: 10px;
-  text-decoration: none;
+  text-decoration: underline;
   font-weight: normal;
+  border: none;
 }
 
 .auth-form .btn-link:hover {
-  text-decoration: underline;
+  color: #C62828;
   background: none;
 }

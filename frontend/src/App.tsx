@@ -583,7 +583,7 @@ function App() {
           >
             ☰
           </button>
-          <h1>Missiv</h1>
+          <h1>Zcomm</h1>
           <div className="mobile-header-actions">
             {selectedMiv && (
               <button
