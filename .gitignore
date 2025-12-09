@@ -51,6 +51,11 @@ data/
 /tmp/
 backend/backend
 
+# Test users (local development only)
+backend/internal/api/users.go
+TEST_USERS_README.md
+CC_FIX_TESTING.md
+
 # Uploads
 uploads/
 backend/uploads/

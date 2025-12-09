@@ -704,28 +704,6 @@ func (s *Server) replyToConversation(c *gin.Context) {
 		return
 	}
 
-	// Create reply miv
-	miv := &models.ConversationMiv{
-		ConversationID: conversationID,
-		From:           deskID,
-		To:             recipientID,
-		Cc:             req.Cc, // CC if specified (only for first reply)
-		ArrowTo:        recipientID, // Who receives this reply
-		Type:           models.MivTypeMiv, // Regular message
-		Subject:        conv.Subject,
-		Body:           base64.StdEncoding.EncodeToString([]byte(req.Body)),
-		State:          models.StateSENT, // Use SENT state for replies
-		IsEncrypted:    false,
-		IsAck:          req.IsAck,
-		FontFamily:     req.FontFamily,
-		FontSize:       req.FontSize,
-	}
-
-	if err := s.storage.CreateConversationMiv(miv); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create reply"})
-		return
-	}
-
 	// Create CC copies of the reply for each CC recipient in separate conversations
 	// Find CC recipients from conversation history
 	var ccRecipients []string
@@ -761,6 +739,28 @@ func (s *Server) replyToConversation(c *gin.Context) {
 				ccRecipients = append(ccRecipients, newCc)
 			}
 		}
+	}
+
+	// Create reply miv with CC information
+	miv := &models.ConversationMiv{
+		ConversationID: conversationID,
+		From:           deskID,
+		To:             recipientID,
+		Cc:             ccRecipients, // Include all CC recipients from conversation history
+		ArrowTo:        recipientID, // Who receives this reply
+		Type:           models.MivTypeMiv, // Regular message
+		Subject:        conv.Subject,
+		Body:           base64.StdEncoding.EncodeToString([]byte(req.Body)),
+		State:          models.StateSENT, // Use SENT state for replies
+		IsEncrypted:    false,
+		IsAck:          req.IsAck,
+		FontFamily:     req.FontFamily,
+		FontSize:       req.FontSize,
+	}
+
+	if err := s.storage.CreateConversationMiv(miv); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create reply"})
+		return
 	}
 
 	log.Printf("DEBUG: Found %d CC recipients for reply: %v", len(ccRecipients), ccRecipients)

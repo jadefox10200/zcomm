@@ -1,11 +1,17 @@
-import React, { useState, useEffect } from 'react';
-import { CKEditor } from '@ckeditor/ckeditor5-react';
-import ClassicEditor from '@ckeditor/ckeditor5-build-classic';
-import { GetConversationResponse, Contact, ConversationMiv, Desk, Account } from '../types';
-import * as api from '../api/client';
-import { uploadPlugin } from '../utils/ckEditorUploadAdapter';
-import { buildMessageWithTemplate } from '../utils/messageTemplate';
-import './ConversationThread.css';
+import React, { useState, useEffect } from "react";
+import { CKEditor } from "@ckeditor/ckeditor5-react";
+import ClassicEditor from "@ckeditor/ckeditor5-build-classic";
+import {
+  GetConversationResponse,
+  Contact,
+  ConversationMiv,
+  Desk,
+  Account,
+} from "../types";
+import * as api from "../api/client";
+import { uploadPlugin } from "../utils/ckEditorUploadAdapter";
+import { buildMessageWithTemplate } from "../utils/messageTemplate";
+import "./ConversationThread.css";
 
 interface ConversationThreadProps {
   conversation: GetConversationResponse;
@@ -16,16 +22,24 @@ interface ConversationThreadProps {
   onArchive?: () => void;
 }
 
-function ConversationThread({ conversation, currentDeskId, desk, account, onReply, onArchive }: ConversationThreadProps) {
-  const [replyBody, setReplyBody] = useState('');
+function ConversationThread({
+  conversation,
+  currentDeskId,
+  desk,
+  account,
+  onReply,
+  onArchive,
+}: ConversationThreadProps) {
+  const [replyBody, setReplyBody] = useState("");
   const [showReplyForm, setShowReplyForm] = useState(false);
   const [showAckConfirm, setShowAckConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [ackBody, setAckBody] = useState('');
+  const [ackBody, setAckBody] = useState("");
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [selectedMiv, setSelectedMiv] = useState<ConversationMiv | null>(null);
   const [showPreview, setShowPreview] = useState(false);
-  const [replyTemplateInitialized, setReplyTemplateInitialized] = useState(false);
+  const [replyTemplateInitialized, setReplyTemplateInitialized] =
+    useState(false);
 
   useEffect(() => {
     const loadContactsData = async () => {
@@ -33,55 +47,67 @@ function ConversationThread({ conversation, currentDeskId, desk, account, onRepl
         const response = await api.listContacts(currentDeskId);
         setContacts(response.contacts || []);
       } catch (err) {
-        console.error('Failed to load contacts:', err);
+        console.error("Failed to load contacts:", err);
       }
     };
-    
+
     loadContactsData();
   }, [currentDeskId]);
 
   // Auto-insert salutation and signature when reply form is shown
   useEffect(() => {
-    const shouldInitializeReplyTemplate = 
-      showReplyForm && !replyTemplateInitialized && contacts.length > 0 && conversation;
-    
+    const shouldInitializeReplyTemplate =
+      showReplyForm &&
+      !replyTemplateInitialized &&
+      contacts.length > 0 &&
+      conversation;
+
     if (shouldInitializeReplyTemplate) {
       // Get the recipient (who we're replying to - the other party in conversation)
       const latestMiv = conversation.mivs[conversation.mivs.length - 1];
-      const recipient = latestMiv.from === currentDeskId ? latestMiv.to : latestMiv.from;
-      
+      const recipient =
+        latestMiv.from === currentDeskId ? latestMiv.to : latestMiv.from;
+
       const initialTemplate = buildMessageWithTemplate(
-        desk.default_salutation || '',
+        desk.default_salutation || "",
         recipient,
         contacts,
-        desk.default_closure || '',
-        '<p><br></p>' // Empty paragraph for typing
+        desk.default_closure || "",
+        "<p><br></p>" // Empty paragraph for typing
       );
       setReplyBody(initialTemplate);
       setReplyTemplateInitialized(true);
     }
-    
+
     // Reset template flag when reply form is hidden
     if (!showReplyForm) {
       setReplyTemplateInitialized(false);
     }
-  }, [showReplyForm, replyTemplateInitialized, contacts, conversation, currentDeskId, desk.default_salutation, desk.default_closure]);
+  }, [
+    showReplyForm,
+    replyTemplateInitialized,
+    contacts,
+    conversation,
+    currentDeskId,
+    desk.default_salutation,
+    desk.default_closure,
+  ]);
 
   const handleReply = (e: React.FormEvent) => {
     e.preventDefault();
     if (replyBody.trim()) {
       onReply(replyBody.trim(), false);
-      setReplyBody('');
+      setReplyBody("");
       setShowReplyForm(false);
       setReplyTemplateInitialized(false);
     }
   };
 
   const handleAck = () => {
-    const messageToSend = ackBody.trim() || 'ACK - Conversation ended';
+    const messageToSend = ackBody.trim() || "ACK - Conversation ended";
     onReply(messageToSend, true);
     setShowAckConfirm(false);
-    setAckBody('');
+    setAckBody("");
   };
 
   const handleDelete = async () => {
@@ -92,23 +118,23 @@ function ConversationThread({ conversation, currentDeskId, desk, account, onRepl
         onArchive();
       }
     } catch (err) {
-      console.error('Failed to archive conversation:', err);
-      alert('Failed to archive conversation. Please try again.');
+      console.error("Failed to archive conversation:", err);
+      alert("Failed to archive conversation. Please try again.");
     }
   };
 
   // Ping-pong style: only show reply buttons if latest miv is to us and unanswered
   const shouldShowReplyButtons = () => {
     if (!conversation || conversation.mivs.length === 0) return false;
-    
+
     const latestMiv = conversation.mivs[conversation.mivs.length - 1];
-    
+
     // Only show if the latest message is TO us (not from us)
     if (latestMiv.to !== currentDeskId) return false;
-    
+
     // Don't show if archived
     if (conversation.conversation.is_archived) return false;
-    
+
     return true;
   };
 
@@ -120,12 +146,12 @@ function ConversationThread({ conversation, currentDeskId, desk, account, onRepl
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
     });
   };
 
@@ -137,7 +163,7 @@ function ConversationThread({ conversation, currentDeskId, desk, account, onRepl
   };
 
   const getDisplayName = (deskIdRef: string) => {
-    const contact = contacts.find(c => c.desk_id_ref === deskIdRef);
+    const contact = contacts.find((c) => c.desk_id_ref === deskIdRef);
     const formattedId = formatDeskId(deskIdRef);
     if (contact) {
       return `${contact.name} @ ${formattedId}`;
@@ -166,7 +192,8 @@ function ConversationThread({ conversation, currentDeskId, desk, account, onRepl
         <div className="thread-header">
           <h3>Conversation Thread</h3>
           <span className="thread-count">
-            {conversation.mivs.length} {conversation.mivs.length === 1 ? 'message' : 'messages'}
+            {conversation.mivs.length}{" "}
+            {conversation.mivs.length === 1 ? "message" : "messages"}
           </span>
         </div>
         <div className="thread-icons">
@@ -202,35 +229,53 @@ function ConversationThread({ conversation, currentDeskId, desk, account, onRepl
       <div className="conversation-messages-inbox-style">
         {conversation.mivs.map((miv, index) => {
           const isFromMe = miv.from === currentDeskId;
-          
+
           return (
             <div
               key={miv.id}
-              className={`message-inbox-item ${selectedMiv?.id === miv.id ? "selected" : ""}`}
+              className={`message-inbox-item ${
+                selectedMiv?.id === miv.id ? "selected" : ""
+              }`}
               onClick={() => handleMivClick(miv)}
             >
               {/* INBOX-style layout: FROM, DATE, SUBJECT (inline) */}
               <div className="message-inbox-header">
                 <span className="message-inbox-from">
-                  {isFromMe ? `To: ${getDisplayName(miv.to)}` : `From: ${getDisplayName(miv.from)}`}
+                  {isFromMe
+                    ? `To: ${getDisplayName(miv.to)}`
+                    : `From: ${getDisplayName(miv.from)}`}
                 </span>
-                <span className="message-inbox-date">{formatDate(miv.created_at)}</span>
+                <span className="message-inbox-date">
+                  {formatDate(miv.created_at)}
+                </span>
                 <span className="message-inbox-seq">#{miv.seq_no}</span>
               </div>
-              
+
+              {miv.cc && miv.cc.length > 0 && (
+                <div className="message-inbox-cc">
+                  <span className="cc-label">CC: </span>
+                  {miv.cc.map((ccRecipient, ccIndex) => (
+                    <span key={ccIndex} className="cc-recipient">
+                      {getDisplayName(ccRecipient)}
+                      {ccIndex < miv.cc!.length - 1 ? ", " : ""}
+                    </span>
+                  ))}
+                </div>
+              )}
+
               <div className="message-inbox-body epistle-document">
                 {miv.is_ack && <span className="ack-badge">[ACK] </span>}
                 {/* Message body only - salutations and closures are not displayed */}
-                <div 
+                <div
                   className="epistle-content"
                   style={{
-                    fontFamily: desk?.font_family || 'Georgia, serif',
-                    fontSize: desk?.font_size || '14px'
+                    fontFamily: desk?.font_family || "Georgia, serif",
+                    fontSize: desk?.font_size || "14px",
                   }}
                 >
-                  <div 
-                    className={desk?.auto_indent ? 'auto-indent' : ''}
-                    dangerouslySetInnerHTML={{ __html: atob(miv.body) }} 
+                  <div
+                    className={desk?.auto_indent ? "auto-indent" : ""}
+                    dangerouslySetInnerHTML={{ __html: atob(miv.body) }}
                   />
                 </div>
               </div>
@@ -240,7 +285,7 @@ function ConversationThread({ conversation, currentDeskId, desk, account, onRepl
                   Read {formatDate(miv.read_at)}
                 </div>
               )}
-              
+
               {!miv.read_at && miv.sent_at && isFromMe && (
                 <div className="message-status">
                   Sent {formatDate(miv.sent_at)}
@@ -257,7 +302,10 @@ function ConversationThread({ conversation, currentDeskId, desk, account, onRepl
             {showDeleteConfirm ? (
               <div className="delete-confirm">
                 <h3>Archive Conversation</h3>
-                <p>Are you sure you want to archive this conversation? It will be removed from your inbox.</p>
+                <p>
+                  Are you sure you want to archive this conversation? It will be
+                  removed from your inbox.
+                </p>
                 <div className="delete-actions">
                   <button onClick={handleDelete} className="btn btn-danger">
                     Yes, Archive
@@ -273,7 +321,10 @@ function ConversationThread({ conversation, currentDeskId, desk, account, onRepl
             ) : showAckConfirm ? (
               <div className="ack-confirm">
                 <h3>Send Acknowledgment</h3>
-                <p>Send an acknowledgment message? The recipient can reply to continue the conversation or delete it to end.</p>
+                <p>
+                  Send an acknowledgment message? The recipient can reply to
+                  continue the conversation or delete it to end.
+                </p>
                 <textarea
                   value={ackBody}
                   onChange={(e) => setAckBody(e.target.value)}
@@ -287,7 +338,7 @@ function ConversationThread({ conversation, currentDeskId, desk, account, onRepl
                   <button
                     onClick={() => {
                       setShowAckConfirm(false);
-                      setAckBody('');
+                      setAckBody("");
                     }}
                     className="btn"
                   >
@@ -300,38 +351,76 @@ function ConversationThread({ conversation, currentDeskId, desk, account, onRepl
                 <div className="editor-container">
                   <CKEditor
                     editor={ClassicEditor as any}
-                    config={{
-                      extraPlugins: [uploadPlugin],
-                      toolbar: {
-                        items: [
-                          'undo', 'redo', '|',
-                          'heading', '|',
-                          'bold', 'italic', 'underline', 'strikethrough', '|',
-                          'code', 'subscript', 'superscript', '|',
-                          'link', 'insertTable', 'imageUpload', 'mediaEmbed', '|',
-                          'bulletedList', 'numberedList', '|',
-                          'blockQuote', 'horizontalLine'
-                        ]
-                      },
-                      image: {
-                        toolbar: [
-                          'imageStyle:alignLeft',
-                          'imageStyle:alignCenter',
-                          'imageStyle:alignRight',
-                          '|',
-                          'resizeImage'
-                        ]
-                      },
-                      heading: {
-                        options: [
-                          { model: 'paragraph', title: 'Paragraph', class: 'ck-heading_paragraph' },
-                          { model: 'heading1', view: 'h1', title: 'Heading 1', class: 'ck-heading_heading1' },
-                          { model: 'heading2', view: 'h2', title: 'Heading 2', class: 'ck-heading_heading2' },
-                          { model: 'heading3', view: 'h3', title: 'Heading 3', class: 'ck-heading_heading3' }
-                        ]
-                      },
-                      placeholder: 'Type your reply...'
-                    } as any}
+                    config={
+                      {
+                        extraPlugins: [uploadPlugin],
+                        toolbar: {
+                          items: [
+                            "undo",
+                            "redo",
+                            "|",
+                            "heading",
+                            "|",
+                            "bold",
+                            "italic",
+                            "underline",
+                            "strikethrough",
+                            "|",
+                            "code",
+                            "subscript",
+                            "superscript",
+                            "|",
+                            "link",
+                            "insertTable",
+                            "imageUpload",
+                            "mediaEmbed",
+                            "|",
+                            "bulletedList",
+                            "numberedList",
+                            "|",
+                            "blockQuote",
+                            "horizontalLine",
+                          ],
+                        },
+                        image: {
+                          toolbar: [
+                            "imageStyle:alignLeft",
+                            "imageStyle:alignCenter",
+                            "imageStyle:alignRight",
+                            "|",
+                            "resizeImage",
+                          ],
+                        },
+                        heading: {
+                          options: [
+                            {
+                              model: "paragraph",
+                              title: "Paragraph",
+                              class: "ck-heading_paragraph",
+                            },
+                            {
+                              model: "heading1",
+                              view: "h1",
+                              title: "Heading 1",
+                              class: "ck-heading_heading1",
+                            },
+                            {
+                              model: "heading2",
+                              view: "h2",
+                              title: "Heading 2",
+                              class: "ck-heading_heading2",
+                            },
+                            {
+                              model: "heading3",
+                              view: "h3",
+                              title: "Heading 3",
+                              class: "ck-heading_heading3",
+                            },
+                          ],
+                        },
+                        placeholder: "Type your reply...",
+                      } as any
+                    }
                     data={replyBody}
                     onChange={(event, editor) => {
                       const data = editor.getData();
@@ -368,7 +457,7 @@ function ConversationThread({ conversation, currentDeskId, desk, account, onRepl
                     className="btn"
                     onClick={() => {
                       setShowReplyForm(false);
-                      setReplyBody('');
+                      setReplyBody("");
                       setReplyTemplateInitialized(false);
                     }}
                   >
@@ -422,27 +511,39 @@ function ConversationThread({ conversation, currentDeskId, desk, account, onRepl
           <div className="preview-modal" onClick={(e) => e.stopPropagation()}>
             <div className="preview-header">
               <h3>Reply Preview</h3>
-              <button className="close-button" onClick={() => setShowPreview(false)}>×</button>
+              <button
+                className="close-button"
+                onClick={() => setShowPreview(false)}
+              >
+                ×
+              </button>
             </div>
             <div className="preview-content">
-              <div 
-                className="epistle-preview" 
+              <div
+                className="epistle-preview"
                 style={{
-                  fontFamily: desk?.font_family || 'Georgia, serif',
-                  fontSize: desk?.font_size || '14px'
+                  fontFamily: desk?.font_family || "Georgia, serif",
+                  fontSize: desk?.font_size || "14px",
                 }}
               >
                 <div className="preview-subject">
                   <h2>{conversation.conversation.subject}</h2>
                 </div>
-                <div 
-                  className={`preview-body ${desk?.auto_indent ? 'auto-indent' : ''}`}
-                  dangerouslySetInnerHTML={{ __html: replyBody || '<p>(No message)</p>' }}
+                <div
+                  className={`preview-body ${
+                    desk?.auto_indent ? "auto-indent" : ""
+                  }`}
+                  dangerouslySetInnerHTML={{
+                    __html: replyBody || "<p>(No message)</p>",
+                  }}
                 />
               </div>
             </div>
             <div className="preview-actions">
-              <button className="btn btn-secondary" onClick={() => setShowPreview(false)}>
+              <button
+                className="btn btn-secondary"
+                onClick={() => setShowPreview(false)}
+              >
                 Close Preview
               </button>
             </div>
