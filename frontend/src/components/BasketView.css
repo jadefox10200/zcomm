@@ -91,7 +91,7 @@
   font-weight: 600;
   color: #000000;
   font-family: Helvetica, Arial, sans-serif;
-  min-width: 180px;
+  min-width: 200px; /* Increased from 180px for better display */
   flex-shrink: 0;
 }
 
@@ -101,7 +101,7 @@
   font-size: 13px;
   font-family: Arial, Tahoma, sans-serif;
   flex-shrink: 0;
-  max-width: 200px;
+  max-width: 150px; /* Reduced from 200px to give more space to subject */
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -119,6 +119,7 @@
   color: #333333;
   font-family: Arial, Tahoma, sans-serif;
   flex: 1;
+  min-width: 150px; /* Ensure subject has minimum width */
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -135,24 +136,6 @@
 .basket-separator {
   color: #999999;
   margin: 0 8px;
-}
-
-.basket-date-range {
-  font-size: 13px;
-  color: #666666;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.basket-count-inline {
-  font-size: 13px;
-  color: #666666;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.conversation-format {
-  font-size: 13px;
 }
 
 .empty-state {
@@ -186,6 +169,6 @@
 }
 
 .basket-unread {
-  color: #C62828;
+  color: #c62828;
   font-weight: 500;
 }

@@ -19,6 +19,7 @@ interface MivDetailWithContextProps {
   onReply: (body: string, isAck?: boolean) => void;
   onForget?: () => void; // Callback when miv is forgotten
   onDeleteCc?: (conversationId: string) => void; // Callback when CC recipient deletes
+  onBack?: () => void; // Callback to go back to basket view
 }
 
 function MivDetailWithContext({
@@ -28,6 +29,7 @@ function MivDetailWithContext({
   onReply,
   onForget,
   onDeleteCc,
+  onBack,
 }: MivDetailWithContextProps) {
   const [conversation, setConversation] =
     useState<GetConversationResponse | null>(null);
@@ -383,6 +385,15 @@ function MivDetailWithContext({
 
   return (
     <div className="miv-detail-with-context">
+      {/* Back button - shows on desktop when viewing a miv */}
+      {onBack && (
+        <div className="miv-back-button-container">
+          <button className="miv-back-button" onClick={onBack}>
+            ← Back to Basket
+          </button>
+        </div>
+      )}
+
       {/* Conversation thread icons - keep at top */}
       <div className="thread-context">
         <div className="thread-header">

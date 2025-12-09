@@ -7,6 +7,7 @@ import {
 } from "../types";
 import * as api from "../api/client";
 import { useSwipe } from "../utils/useSwipe";
+import ConversationItem from "./ConversationItem";
 import "./BasketView.css";
 
 interface BasketViewProps {
@@ -229,32 +230,14 @@ function BasketView({
             </div>
           ) : (
             archivedConversations.map((conv) => (
-              <div
+              <ConversationItem
                 key={conv.conversation.id}
-                className="basket-item conversation-format"
+                conversation={conv}
+                isSelected={false}
                 onClick={() => conv.latest_miv && onMivClick(conv.latest_miv)}
-              >
-                {/* Mirror conversation list format: FROM (partner) • DATE/TIME (range) • SUBJECT • COUNT */}
-                <div className="basket-item-row">
-                  <span className="basket-from">
-                    {getConversationPartner(conv)}
-                  </span>
-                  {/* <span className="basket-separator">•</span> */}
-                  <span className="basket-date-range">
-                    {formatDate(conv.conversation.created_at)} -{" "}
-                    {formatDate(conv.conversation.updated_at)}
-                  </span>
-                  {/* <span className="basket-separator">•</span> */}
-                  <span className="basket-subject">
-                    {conv.conversation.subject}
-                  </span>
-                  {/* <span className="basket-separator">•</span> */}
-                  <span className="basket-count-inline">
-                    {conv.conversation.miv_count}{" "}
-                    {conv.conversation.miv_count === 1 ? "miv" : "mivs"}
-                  </span>
-                </div>
-              </div>
+                partnerName={getConversationPartner(conv)}
+                formatDate={formatDate}
+              />
             ))
           )
         ) : mivs.length === 0 ? (

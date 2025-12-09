@@ -5,9 +5,9 @@
 }
 
 body {
-  font-family: Arial, Tahoma, -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen",
-    "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
-    sans-serif;
+  font-family: Arial, Tahoma, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "Roboto", "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans",
+    "Helvetica Neue", sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   color: #000000;
@@ -83,12 +83,12 @@ body {
 }
 
 .compose-btn:hover {
-  background: #C62828;
-  border-color: #C62828;
+  background: #c62828;
+  border-color: #c62828;
 }
 
 .compose-btn:focus {
-  outline: 2px solid #C62828;
+  outline: 2px solid #c62828;
   outline-offset: 2px;
 }
 
@@ -139,18 +139,18 @@ body {
 }
 
 .nav-menu button:focus {
-  outline: 2px solid #C62828;
+  outline: 2px solid #c62828;
   outline-offset: -2px;
 }
 
 .nav-menu button.active {
   background: #1a1a1a;
   font-weight: 600;
-  border-left: 3px solid #C62828;
+  border-left: 3px solid #c62828;
 }
 
 .nav-menu .badge {
-  background: #C62828;
+  background: #c62828;
   color: white;
   font-size: 11px;
   font-weight: 600;
@@ -199,7 +199,7 @@ body {
 }
 
 .btn-settings:focus {
-  outline: 2px solid #C62828;
+  outline: 2px solid #c62828;
   outline-offset: 2px;
 }
 
@@ -222,7 +222,7 @@ body {
 }
 
 .btn-logout:focus {
-  outline: 2px solid #C62828;
+  outline: 2px solid #c62828;
   outline-offset: 2px;
 }
 
@@ -247,16 +247,28 @@ body {
 
 /* Basket view containers */
 .basket-list-container {
-  width: 350px;
+  width: 100%; /* Increased from 350px to show full From, Subject, Date like Gmail */
   border-right: 1px solid #d0d0d0;
   background: #fafafa;
   overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+/* Hide basket list when a miv is selected (desktop behavior like Gmail) */
+.basket-list-container.mobile-hidden {
+  display: none;
 }
 
 .basket-detail-container {
   flex: 1;
   background: white;
   overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+/* Fullscreen detail view when miv is selected (desktop behavior like Gmail) */
+.basket-detail-container.mobile-fullscreen {
+  width: 100%;
 }
 
 .empty-selection {
@@ -311,12 +323,12 @@ body {
 }
 
 .btn-primary:hover {
-  background: #C62828;
-  border-color: #C62828;
+  background: #c62828;
+  border-color: #c62828;
 }
 
 .btn-primary:focus {
-  outline: 2px solid #C62828;
+  outline: 2px solid #c62828;
   outline-offset: 2px;
 }
 
@@ -514,8 +526,8 @@ body {
   }
 
   .mobile-compose-btn:hover {
-    background: #C62828;
-    border-color: #C62828;
+    background: #c62828;
+    border-color: #c62828;
   }
 
   /* Mobile header actions */
@@ -564,8 +576,11 @@ body {
     width: 240px;
   }
 
-  .conversation-list-container,
-  .basket-list-container {
+  .conversation-list-container {
     width: 300px;
+  }
+
+  .basket-list-container {
+    width: 450px; /* Wider on tablet to show more content */
   }
 }

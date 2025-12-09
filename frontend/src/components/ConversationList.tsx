@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { ConversationWithLatest, Contact } from '../types';
+import { ConversationWithLatest, Contact, ConversationMiv } from '../types';
 import * as api from '../api/client';
+import ConversationItem from './ConversationItem';
 import './ConversationList.css';
 
 interface ConversationListProps {
@@ -8,15 +9,22 @@ interface ConversationListProps {
   selectedConversationId?: string;
   onConversationClick: (conversation: ConversationWithLatest) => void;
   currentDeskId?: string;
+  onMivClick?: (miv: ConversationMiv) => void;
+  selectedMivId?: string;
 }
 
 function ConversationList({ 
   conversations, 
   selectedConversationId, 
   onConversationClick,
-  currentDeskId 
+  currentDeskId,
+  onMivClick,
+  selectedMivId
 }: ConversationListProps) {
   const [contacts, setContacts] = useState<Contact[]>([]);
+  const [expandedConversationId, setExpandedConversationId] = useState<string | null>(null);
+  const [conversationMivs, setConversationMivs] = useState<ConversationMiv[]>([]);
+  const [loadingMivs, setLoadingMivs] = useState(false);
 
   useEffect(() => {
     const loadContactsData = async () => {
@@ -31,6 +39,26 @@ function ConversationList({
     
     loadContactsData();
   }, [currentDeskId]);
+
+  // Load mivs when a conversation is expanded
+  useEffect(() => {
+    const loadConversationMivs = async () => {
+      if (!expandedConversationId || !currentDeskId) return;
+      
+      setLoadingMivs(true);
+      try {
+        const response = await api.getConversation(expandedConversationId, currentDeskId);
+        setConversationMivs(response.mivs || []);
+      } catch (err) {
+        console.error('Failed to load conversation mivs:', err);
+      } finally {
+        setLoadingMivs(false);
+      }
+    };
+
+    loadConversationMivs();
+  }, [expandedConversationId, currentDeskId]);
+
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -68,6 +96,20 @@ function ConversationList({
     return contact ? contact.name : formatPhoneId(partnerDeskId);
   };
 
+  const getDisplayName = (deskIdRef: string) => {
+    const contact = contacts.find((c) => c.desk_id_ref === deskIdRef);
+    const formattedId = formatPhoneId(deskIdRef);
+    if (contact) {
+      return `${contact.name} @ ${formattedId}`;
+    }
+    return formattedId;
+  };
+
+  const handleConversationItemClick = async (conv: ConversationWithLatest) => {
+    setExpandedConversationId(conv.conversation.id);
+    onConversationClick(conv);
+  };
+
   if (!conversations || conversations.length === 0) {
     return (
       <div className="conversation-list">
@@ -93,35 +135,78 @@ function ConversationList({
       </div>
 
       <div className="conversation-list-items">
-        {conversations.map(conv => (
-          <div
-            key={conv.conversation.id}
-            className={`conversation-item ${
-              selectedConversationId === conv.conversation.id ? 'selected' : ''
-            } ${conv.unread_count > 0 ? 'unread' : ''}`}
-            onClick={() => onConversationClick(conv)}
-          >
-            {/* Thin-line format: FROM (partner) • DATE/TIME (range) • SUBJECT • COUNT */}
-            <div className="conversation-item-row">
-              <span className="conversation-partner">
-                {getConversationPartner(conv)}
-              </span>
-              <span className="conversation-separator">•</span>
-              <span className="conversation-date-range">
-                {formatDate(conv.conversation.created_at)} - {formatDate(conv.conversation.updated_at)}
-              </span>
-              <span className="conversation-separator">•</span>
-              <span className="conversation-subject">{conv.conversation.subject}</span>
-              <span className="conversation-separator">•</span>
-              <span className="conversation-miv-count">
-                {conv.conversation.miv_count} {conv.conversation.miv_count === 1 ? 'miv' : 'mivs'}
-              </span>
-              {conv.unread_count > 0 && (
-                <span className="unread-badge-inline">{conv.unread_count}</span>
-              )}
+        {/* Show conversation items when no conversation is expanded */}
+        {!expandedConversationId ? (
+          conversations.map(conv => (
+            <ConversationItem
+              key={conv.conversation.id}
+              conversation={conv}
+              isSelected={false}
+              onClick={() => handleConversationItemClick(conv)}
+              partnerName={getConversationPartner(conv)}
+              formatDate={formatDate}
+            />
+          ))
+        ) : (
+          /* Show mivs from expanded conversation */
+          loadingMivs ? (
+            <div className="empty-state">
+              <p>Loading messages...</p>
             </div>
-          </div>
-        ))}
+          ) : conversationMivs.length === 0 ? (
+            <div className="empty-state">
+              <p>No messages in this conversation</p>
+            </div>
+          ) : (
+            conversationMivs.map((miv) => (
+              <div
+                key={miv.id}
+                className={`basket-item ${
+                  selectedMivId === miv.id ? "selected" : ""
+                }`}
+                onClick={() => onMivClick && onMivClick(miv)}
+              >
+                {/* Two-row layout: FROM and SUBJECT on first row, DATE/TIME and read/unread icons on second row */}
+                <div className="basket-item-row">
+                  <div className="basket-item-first-row">
+                    <span className="basket-from">
+                      {miv.from === currentDeskId
+                        ? `To: ${getDisplayName(miv.to)}`
+                        : `From: ${getDisplayName(miv.from)}`}
+                    </span>
+                    {miv.cc && miv.cc.length > 0 && (
+                      <span className="basket-cc">
+                        CC:{" "}
+                        {miv.cc
+                          .map((ccRecipient) => {
+                            const contact = contacts.find(
+                              (c) => c.desk_id_ref === ccRecipient
+                            );
+                            return contact
+                              ? contact.name
+                              : formatPhoneId(ccRecipient);
+                          })
+                          .join(", ")}
+                      </span>
+                    )}
+                    <span className="basket-subject">{miv.subject}</span>
+                  </div>
+                  <div className="basket-item-second-row">
+                    <span className="basket-date">
+                      {formatDate(miv.created_at)}
+                    </span>
+                    <span
+                      className={miv.read_at ? "basket-read" : "basket-unread"}
+                    >
+                      {miv.read_at ? "✓ Read" : "○ Unread"}
+                    </span>
+                    <span className="basket-seq">#{miv.seq_no}</span>
+                  </div>
+                </div>
+              </div>
+            ))
+          )
+        )}
       </div>
     </div>
   );

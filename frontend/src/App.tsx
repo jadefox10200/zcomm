@@ -2,7 +2,6 @@ import React, { useState, useEffect } from "react";
 import Auth from "./components/Auth";
 import DeskSwitcher from "./components/DeskSwitcher";
 import ConversationList from "./components/ConversationList";
-import ConversationThread from "./components/ConversationThread";
 import BasketView from "./components/BasketView";
 import MivDetailWithContext from "./components/MivDetailWithContext";
 import NotificationPanel from "./components/NotificationPanel";
@@ -203,7 +202,7 @@ function App() {
         for (const miv of fullConv.mivs) {
           // Skip forgotten mivs
           if (miv.is_forgotten) continue;
-          
+
           // Count based on miv state from backend
           if (!conv.conversation.is_archived) {
             if (miv.state === "IN" || miv.state === "CC") {
@@ -423,6 +422,18 @@ function App() {
     }
   };
 
+  const handleBackToBasket = async () => {
+    // Clear the selected miv to return to basket view
+    setSelectedMiv(null);
+
+    // Refresh the basket to reflect any state changes (e.g., IN -> PENDING)
+    if (activeDesk) {
+      setBasketRefreshKey((prev) => prev + 1);
+      const response = await api.listConversations(activeDesk.id);
+      await calculateBasketCounts(response.conversations, activeDesk.id);
+    }
+  };
+
   const handleConversationClick = async (conv: ConversationWithLatest) => {
     try {
       // Pass desk_id to automatically mark messages as read
@@ -468,31 +479,6 @@ function App() {
     } catch (err) {
       console.error("Failed to create conversation:", err);
       throw err;
-    }
-  };
-
-  const handleReply = async (body: string, isAck: boolean = false) => {
-    if (!activeDesk || !selectedConversation) return;
-
-    try {
-      await api.replyToConversation(
-        selectedConversation.conversation.id,
-        activeDesk.id,
-        {
-          body,
-          is_ack: isAck,
-        }
-      );
-
-      // Reload conversation
-      const response = await api.getConversation(
-        selectedConversation.conversation.id,
-        activeDesk.id
-      );
-      setSelectedConversation(response);
-      await refreshConversations();
-    } catch (err) {
-      console.error("Failed to reply:", err);
     }
   };
 
@@ -819,6 +805,7 @@ function App() {
                   onReply={handleMivReply}
                   onForget={handleMivForget}
                   onDeleteCc={handleDeleteCc}
+                  onBack={handleBackToBasket}
                 />
               ) : (
                 <div className="empty-selection">
@@ -829,7 +816,11 @@ function App() {
           </>
         ) : (
           <>
-            <div className="conversation-list-container">
+            <div
+              className={`basket-list-container ${
+                selectedMiv ? "mobile-hidden" : ""
+              }`}
+            >
               <ConversationList
                 conversations={conversations.filter(
                   (conv) => !conv.conversation.is_archived
@@ -837,20 +828,28 @@ function App() {
                 selectedConversationId={selectedConversation?.conversation.id}
                 onConversationClick={handleConversationClick}
                 currentDeskId={activeDesk.id}
+                onMivClick={handleMivClick}
+                selectedMivId={selectedMiv?.id}
               />
             </div>
-            <div className="conversation-thread-container">
-              {selectedConversation ? (
-                <ConversationThread
-                  conversation={selectedConversation}
+            <div
+              className={`basket-detail-container ${
+                selectedMiv ? "mobile-fullscreen" : ""
+              }`}
+            >
+              {selectedMiv ? (
+                <MivDetailWithContext
+                  miv={selectedMiv}
                   currentDeskId={activeDesk.id}
-                  desk={activeDesk}
-                  account={account || undefined}
-                  onReply={handleReply}
+                  currentDesk={activeDesk}
+                  onReply={handleMivReply}
+                  onForget={handleMivForget}
+                  onDeleteCc={handleDeleteCc}
+                  onBack={handleBackToBasket}
                 />
               ) : (
-                <div className="empty-conversation">
-                  <p>Select a conversation to view</p>
+                <div className="empty-selection">
+                  <p>Select a message to view</p>
                 </div>
               )}
             </div>
