@@ -51,7 +51,7 @@
 .form-group input:focus,
 .form-group textarea:focus {
   outline: none;
-  border-color: #1976d2;
+  border-color: #000000;
 }
 
 .form-group input:disabled,
@@ -101,8 +101,8 @@
 
 .contact-select-btn:hover:not(:disabled) {
   background-color: #f8f9fa;
-  border-color: #1976d2;
-  color: #1976d2;
+  border-color: #000000;
+  color: #000000;
 }
 
 .contact-select-btn:disabled {
@@ -178,8 +178,8 @@
 
 .add-cc-btn:hover:not(:disabled) {
   background-color: #f8f9fa;
-  border-color: #1976d2;
-  color: #1976d2;
+  border-color: #000000;
+  color: #000000;
 }
 
 .remove-cc-btn:hover:not(:disabled) {
@@ -221,7 +221,7 @@
 
 .error-message {
   background-color: #ffebee;
-  color: #c62828;
+  color: #C62828;
   padding: 12px;
   border-radius: 4px;
   margin-bottom: 20px;
@@ -230,8 +230,8 @@
 
 input.error,
 .recipient-input-container input.error {
-  border-color: #c62828 !important;
-  box-shadow: 0 0 0 1px #c62828 !important;
+  border-color: #C62828 !important;
+  box-shadow: 0 0 0 1px #C62828 !important;
 }
 
 /* Preview header styles */
@@ -323,7 +323,7 @@ input.error,
 }
 
 .btn-primary {
-  background-color: #1976d2;
+  background-color: #000000;
   color: white;
 }
 
@@ -341,12 +341,12 @@ input.error,
 }
 
 .btn-preview {
-  background-color: #4a90e2;
+  background-color: #000000;
   color: white;
 }
 
 .btn-preview:hover:not(:disabled) {
-  background-color: #357abd;
+  background-color: #C62828;
 }
 
 /* CKEditor container styling */
@@ -568,7 +568,7 @@ input.error,
 
 .contact-item:hover {
   background: #f8f9fa;
-  border-color: #007bff;
+  border-color: #000000;
 }
 
 .contact-info {

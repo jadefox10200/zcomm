@@ -6,9 +6,9 @@
 .desk-switcher-button {
   width: 100%;
   padding: 12px 16px;
-  background: #f8f9fa;
-  border: 1px solid #dee2e6;
-  border-radius: 8px;
+  background: #1a1a1a;
+  border: 1px solid #333333;
+  border-radius: 4px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -17,8 +17,8 @@
 }
 
 .desk-switcher-button:hover {
-  background: #e9ecef;
-  border-color: #adb5bd;
+  background: #2a2a2a;
+  border-color: #ffffff;
 }
 
 .desk-info {
@@ -28,19 +28,20 @@
 
 .desk-name {
   font-weight: 600;
-  color: #212529;
+  color: #ffffff;
   font-size: 14px;
+  font-family: Helvetica, Arial, sans-serif;
 }
 
 .desk-id {
   font-size: 12px;
-  color: #6c757d;
+  color: #999999;
   font-family: 'Courier New', monospace;
   margin-top: 2px;
 }
 
 .dropdown-arrow {
-  color: #6c757d;
+  color: #999999;
   font-size: 10px;
   transition: transform 0.2s;
 }
@@ -51,10 +52,10 @@
   left: 0;
   right: 0;
   margin-top: 4px;
-  background: white;
-  border: 1px solid #dee2e6;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  background: #ffffff;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   z-index: 1000;
   overflow: hidden;
 }
@@ -78,22 +79,23 @@
   padding: 12px 16px;
   background: white;
   border: none;
-  border-bottom: 1px solid #f1f3f5;
+  border-bottom: 1px solid #f0f0f0;
   text-align: left;
   cursor: pointer;
   transition: background 0.2s;
 }
 
 .desk-item:hover {
-  background: #f8f9fa;
+  background: #fafafa;
 }
 
 .desk-item.active {
-  background: #e7f3ff;
+  background: #f5f5f5;
+  border-left: 3px solid #C62828;
 }
 
 .desk-item.active .desk-name {
-  color: #0066cc;
+  color: #000000;
   font-weight: 600;
 }
 
@@ -102,34 +104,37 @@
   padding: 12px 16px;
   background: white;
   border: none;
-  border-top: 2px solid #dee2e6;
-  color: #667eea;
+  border-top: 2px solid #d0d0d0;
+  color: #000000;
   font-weight: 600;
+  font-family: Helvetica, Arial, sans-serif;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .create-desk-button:hover {
-  background: #f8f9fa;
+  background: #fafafa;
 }
 
 .create-desk-form {
   padding: 12px 16px;
-  border-top: 2px solid #dee2e6;
+  border-top: 2px solid #d0d0d0;
 }
 
 .create-desk-form input {
   width: 100%;
   padding: 8px 12px;
-  border: 1px solid #dee2e6;
-  border-radius: 6px;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
   font-size: 14px;
+  font-family: Arial, Tahoma, sans-serif;
   margin-bottom: 8px;
 }
 
 .create-desk-form input:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: #000000;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.1);
 }
 
 .form-buttons {

@@ -96,7 +96,7 @@
 .form-group select:focus,
 .form-group textarea:focus {
   outline: none;
-  border-color: #4a90e2;
+  border-color: #000000;
   box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.1);
 }
 
@@ -170,12 +170,12 @@
 }
 
 .settings-actions .btn-primary {
-  background: #4a90e2;
+  background: #000000;
   color: white;
 }
 
 .settings-actions .btn-primary:hover:not(:disabled) {
-  background: #357abd;
+  background: #C62828;
 }
 
 .settings-actions .btn-secondary {

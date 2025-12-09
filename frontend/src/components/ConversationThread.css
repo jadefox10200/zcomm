@@ -49,12 +49,12 @@
 }
 
 .message-inbox-item:hover {
-  border-color: #667eea;
+  border-color: #000000;
   box-shadow: 0 2px 6px rgba(102, 126, 234, 0.12);
 }
 
 .message-inbox-item.selected {
-  border-color: #667eea;
+  border-color: #000000;
   box-shadow: 0 2px 8px rgba(102, 126, 234, 0.25);
   background: #f0f4ff;
 }
@@ -143,7 +143,7 @@
 }
 
 .message-sent .from-label {
-  color: #0066cc;
+  color: #000000;
 }
 
 .message-seq {
@@ -196,7 +196,7 @@
 
 .reply-form textarea:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: #000000;
   box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
@@ -374,7 +374,7 @@
 }
 
 .epistle-content a {
-  color: #0066cc;
+  color: #000000;
   text-decoration: underline;
   transition: color 0.2s;
 }
@@ -428,7 +428,7 @@
 
 /* Preview button styling */
 .btn-preview {
-  background-color: #4a90e2;
+  background-color: #000000;
   color: white;
   padding: 10px 20px;
   border: none;
@@ -440,7 +440,7 @@
 }
 
 .btn-preview:hover:not(:disabled) {
-  background-color: #357abd;
+  background-color: #C62828;
 }
 
 .btn-preview:disabled {

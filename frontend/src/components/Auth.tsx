@@ -97,8 +97,8 @@ function Auth({ onLogin, onRegister }: AuthProps) {
   return (
     <div className="auth-container">
       <div className="auth-card">
-        <h1>Missiv</h1>
-        <p className="auth-subtitle">Secure, self-hosted messaging</p>
+        <h1>Zcomm</h1>
+        <p className="auth-subtitle">Secure, professional communication platform</p>
 
         {!isRecovery && (
           <div className="auth-tabs">

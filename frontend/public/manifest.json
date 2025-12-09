@@ -1,6 +1,6 @@
 {
-  "short_name": "Missiv",
-  "name": "Missiv - Secure Messaging",
+  "short_name": "Zcomm",
+  "name": "Zcomm - Professional Communication",
   "icons": [
     {
       "src": "favicon.ico",
@@ -20,7 +20,7 @@
   ],
   "start_url": ".",
   "display": "standalone",
-  "theme_color": "#667eea",
+  "theme_color": "#ffffff",
   "background_color": "#ffffff",
   "orientation": "portrait-primary"
 }

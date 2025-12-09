@@ -15,7 +15,7 @@
 .contact-header {
   padding: 20px;
   border-bottom: 1px solid #e0e0e0;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #000000 0%, #000000 100%);
   color: white;
   display: flex;
   justify-content: space-between;
@@ -31,7 +31,7 @@
 .btn-add-contact {
   padding: 8px 16px;
   background: white;
-  color: #667eea;
+  color: #000000;
   border: none;
   border-radius: 6px;
   font-size: 14px;
@@ -63,7 +63,7 @@
 }
 
 .contact-item:hover {
-  border-color: #667eea;
+  border-color: #000000;
   box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
 }
 
@@ -109,12 +109,12 @@
 }
 
 .btn-edit {
-  color: #667eea;
-  border-color: #667eea;
+  color: #000000;
+  border-color: #000000;
 }
 
 .btn-edit:hover {
-  background: #667eea;
+  background: #000000;
   color: white;
 }
 
@@ -199,7 +199,7 @@
 .form-group input:focus,
 .form-group textarea:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: #000000;
 }
 
 .form-group textarea {
@@ -241,7 +241,7 @@
 }
 
 .btn-save {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #000000 0%, #000000 100%);
   color: white;
 }
 
