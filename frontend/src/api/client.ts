@@ -400,6 +400,47 @@ export const forgetMiv = async (mivId: string): Promise<void> => {
   }
 };
 
+// Via routing functions
+export const approveViaRouting = async (
+  mivId: string,
+  deskId: string
+): Promise<ConversationMiv> => {
+  const response = await fetch(
+    `${API_BASE_URL}/mivs/${mivId}/via/approve?desk_id=${deskId}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    }
+  );
+  if (!response.ok) {
+    throw new Error("Failed to approve via routing");
+  }
+  return response.json();
+};
+
+export const rejectViaRouting = async (
+  mivId: string,
+  deskId: string,
+  reason: string
+): Promise<ConversationMiv> => {
+  const response = await fetch(
+    `${API_BASE_URL}/mivs/${mivId}/via/reject?desk_id=${deskId}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ reason }),
+    }
+  );
+  if (!response.ok) {
+    throw new Error("Failed to reject via routing");
+  }
+  return response.json();
+};
+
 // Notification API
 
 export const listNotifications = async (

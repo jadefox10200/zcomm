@@ -1,6 +1,6 @@
-import React from 'react';
-import { ConversationWithLatest } from '../types';
-import './ConversationItem.css';
+import React from "react";
+import { ConversationWithLatest } from "../types";
+import "./ConversationItem.css";
 
 interface ConversationItemProps {
   conversation: ConversationWithLatest;
@@ -19,8 +19,8 @@ function ConversationItem({
 }: ConversationItemProps) {
   return (
     <div
-      className={`conversation-item ${isSelected ? 'selected' : ''} ${
-        conversation.unread_count > 0 ? 'unread' : ''
+      className={`conversation-item ${isSelected ? "selected" : ""} ${
+        conversation.unread_count > 0 ? "unread" : ""
       }`}
       onClick={onClick}
     >
@@ -29,7 +29,7 @@ function ConversationItem({
         <span className="conversation-partner">{partnerName}</span>
         <span className="conversation-separator">•</span>
         <span className="conversation-date-range">
-          {formatDate(conversation.conversation.created_at)} -{' '}
+          {formatDate(conversation.conversation.created_at)} -{" "}
           {formatDate(conversation.conversation.updated_at)}
         </span>
         <span className="conversation-separator">•</span>
@@ -38,8 +38,8 @@ function ConversationItem({
         </span>
         <span className="conversation-separator">•</span>
         <span className="conversation-miv-count">
-          {conversation.conversation.miv_count}{' '}
-          {conversation.conversation.miv_count === 1 ? 'miv' : 'mivs'}
+          {conversation.conversation.miv_count}{" "}
+          {conversation.conversation.miv_count === 1 ? "miv" : "mivs"}
         </span>
         {conversation.unread_count > 0 && (
           <span className="unread-badge-inline">

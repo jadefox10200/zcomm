@@ -489,10 +489,19 @@ func (s *MemoryStorage) MarkConversationMivAsRead(mivID string, deskID string) e
 					return fmt.Errorf("miv not found or not addressed to this desk")
 				}
 
-				// Mark as read and update state to PENDING
+				// Mark as read
 				now := time.Now()
 				mivs[i].ReadAt = &now
-				mivs[i].State = models.StatePENDING
+				
+				// Check if this user is a via intermediary (not the final recipient)
+				isViaIntermediary := len(miv.Via) > 0 && miv.ViaIndex < len(miv.Via) && miv.Via[miv.ViaIndex] == deskID
+				
+				// Only change state to PENDING if NOT a via intermediary
+				// Via intermediaries keep the message in IN state
+				if !isViaIntermediary {
+					mivs[i].State = models.StatePENDING
+				}
+				
 				return nil
 			}
 		}

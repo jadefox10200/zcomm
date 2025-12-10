@@ -270,6 +270,21 @@
   border-top: 1px solid #e0e0e0;
 }
 
+.read-only-notice {
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  border-radius: 6px;
+  padding: 15px 20px;
+  color: #856404;
+  width: 100%;
+}
+
+.read-only-notice p {
+  margin: 0;
+  font-size: 14px;
+  font-style: italic;
+}
+
 .reply-form {
   background: #f8f9fa;
   border: 1px solid #e0e0e0;
@@ -648,8 +663,13 @@
     height: 100vh;
   }
 
+  /* Hide the back button at top on mobile - using dedicated "Back to Basket" button instead */
+  .miv-back-button-container {
+    display: none;
+  }
+
   .thread-context {
-    padding: 12px 16px;
+    padding: 12px 10px;
   }
 
   .thread-icons {
@@ -665,6 +685,52 @@
     flex: 1;
     overflow-y: auto;
     padding-bottom: 80px; /* Space for fixed action buttons */
+  }
+
+  /* Reduce padding/margins for epistle document on mobile */
+  .epistle-document {
+    padding: 20px 12px;
+    margin: 0;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+  }
+
+  .epistle-header {
+    flex-direction: column;
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+  }
+
+  .epistle-header-left {
+    margin-bottom: 12px;
+  }
+
+  .epistle-header-right {
+    text-align: left;
+    margin-left: 0;
+  }
+
+  .epistle-subject {
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+  }
+
+  .epistle-subject h2 {
+    font-size: 20px;
+  }
+
+  .epistle-body {
+    margin-top: 20px;
+  }
+
+  .epistle-content p {
+    text-align: left;
+  }
+
+  .epistle-field-label,
+  .epistle-field-value {
+    font-size: 14px;
   }
 
   .miv-actions {

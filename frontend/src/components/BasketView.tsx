@@ -78,11 +78,6 @@ function BasketView({
           setArchivedConversations([]);
 
           for (const conv of conversations) {
-            // Skip archived conversations for non-archived baskets
-            if (conv.conversation.is_archived) {
-              continue;
-            }
-
             // Get full conversation to access all mivs
             // Pass deskId to get miv states from user's perspective
             const fullConv = await api.getConversation(
@@ -96,6 +91,16 @@ function BasketView({
 
               // Exclude forgotten mivs
               if (miv.is_forgotten) return false;
+
+              // For archived conversations, only show ACKs in IN basket
+              // (Allow recipients to see ACKs they've received even though conversation is archived)
+              if (conv.conversation.is_archived) {
+                // Only show ACKs in IN basket from archived conversations
+                if (selectedBasket === "IN" && miv.is_ack) {
+                  return true;
+                }
+                return false;
+              }
 
               // Exclude ACK mivs from SENT basket (they don't expect replies)
               if (selectedBasket === "SENT" && miv.is_ack) return false;
@@ -276,6 +281,37 @@ function BasketView({
                             : formatPhoneId(ccRecipient);
                         })
                         .join(", ")}
+                    </span>
+                  )}
+                  {miv.via && miv.via.length > 0 && (
+                    <span className="basket-via">
+                      via:{" "}
+                      {miv.via
+                        .map((viaRecipient, idx) => {
+                          const contact = contacts.find(
+                            (c) => c.desk_id_ref === viaRecipient
+                          );
+                          const name = contact
+                            ? contact.name
+                            : formatPhoneId(viaRecipient);
+
+                          // Check if this is the current via recipient
+                          const isCurrent = idx === miv.via_index;
+                          // Check if this via recipient has already passed it
+                          const hasPassed = idx < (miv.via_index || 0);
+
+                          if (isCurrent) {
+                            return `${name} ←`;
+                          } else if (hasPassed) {
+                            return `${name} [OK]`;
+                          } else {
+                            return name;
+                          }
+                        })
+                        .join(", ")}
+                      {miv.is_via_rejected && (
+                        <span className="via-rejected"> [REJECTED]</span>
+                      )}
                     </span>
                   )}
                   <span className="basket-subject">{miv.subject}</span>

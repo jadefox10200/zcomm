@@ -79,6 +79,10 @@ func (s *Server) setupRoutes() {
 		api.POST("/mivs/:id/read", s.markMivAsRead)
 		api.POST("/mivs/:id/forget", s.forgetMiv)
 
+		// Via routing endpoints
+		api.POST("/mivs/:id/via/approve", s.approveViaRouting)
+		api.POST("/mivs/:id/via/reject", s.rejectViaRouting)
+
 		// Notification endpoints
 		api.GET("/notifications", s.listNotifications)
 		api.POST("/notifications/:id/read", s.markNotificationAsRead)

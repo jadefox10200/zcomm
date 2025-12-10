@@ -74,6 +74,9 @@ function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [contacts, setContacts] = useState<Contact[]>([]);
 
+  // Resubmit state - for pre-populating ComposeMiv with rejected via routing message
+  const [resubmitMiv, setResubmitMiv] = useState<ConversationMiv | null>(null);
+
   // Load saved session on mount
   useEffect(() => {
     const savedAccount = localStorage.getItem("account");
@@ -203,8 +206,16 @@ function App() {
           // Skip forgotten mivs
           if (miv.is_forgotten) continue;
 
-          // Count based on miv state from backend
-          if (!conv.conversation.is_archived) {
+          // For archived conversations, only count ACKs in IN basket
+          if (conv.conversation.is_archived) {
+            // Count ACKs in IN basket even if conversation is archived
+            if (miv.state === "IN" && miv.is_ack) {
+              inboxCount++;
+            }
+            // Count all mivs for archived total
+            archivedCount++;
+          } else {
+            // Count based on miv state from backend for active conversations
             if (miv.state === "IN" || miv.state === "CC") {
               inboxCount++;
             } else if (miv.state === "PENDING") {
@@ -213,11 +224,6 @@ function App() {
               // Exclude ACK mivs from SENT basket count (they don't expect replies)
               sentCount++;
             }
-          }
-
-          // Archived: all messages in archived conversations
-          if (conv.conversation.is_archived) {
-            archivedCount++;
           }
         }
       } catch (err) {
@@ -271,12 +277,38 @@ function App() {
   };
 
   const handleLogout = () => {
+    // Clear authentication state
     setAccount(null);
     setToken(null);
+
+    // Clear desk state
     setDesks([]);
     setActiveDesk(null);
+
+    // Clear basket view state
+    setSelectedBasket("IN");
+    setSelectedMiv(null);
+    setBasketRefreshKey(0);
+
+    // Clear basket counts
+    setBasketCounts({ inbox: 0, pending: 0, sent: 0, archived: 0 });
+
+    // Clear conversation view state
     setConversations([]);
+    setSelectedConversation(null);
+    setCurrentView("baskets");
+
+    // Clear notification state
     setNotifications([]);
+    setUnreadCount(0);
+
+    // Clear other state
+    setToastMessage(null);
+    setContacts([]);
+    setResubmitMiv(null);
+    setMobileMenuOpen(false);
+
+    // Clear local storage
     localStorage.removeItem("account");
     localStorage.removeItem("token");
   };
@@ -456,6 +488,7 @@ function App() {
       const conversationRequest = {
         to: request.to,
         cc: request.cc,
+        via: request.via,
         subject: request.subject,
         body: request.body,
         font_family: request.font_family,
@@ -463,6 +496,9 @@ function App() {
       };
 
       await api.createConversation(activeDesk.id, conversationRequest);
+
+      // Clear resubmit state after successful send
+      setResubmitMiv(null);
 
       // Redirect to inbox instead of conversations screen
       setSelectedBasket("IN");
@@ -498,6 +534,15 @@ function App() {
       console.error("Failed to delete CC:", err);
       alert("Failed to remove CC. Please try again.");
     }
+  };
+
+  const handleResubmit = (miv: ConversationMiv) => {
+    // Store the MIV for resubmission
+    setResubmitMiv(miv);
+    // Switch to compose view
+    setCurrentView("compose");
+    // Navigate back to see the compose view
+    setSelectedMiv(null);
   };
 
   const handleNotificationClick = async (notification: Notification) => {
@@ -583,7 +628,10 @@ function App() {
             {currentView !== "compose" && (
               <button
                 className="mobile-compose-btn"
-                onClick={() => setCurrentView("compose")}
+                onClick={() => {
+                  setResubmitMiv(null);
+                  setCurrentView("compose");
+                }}
                 aria-label="Compose new message"
               >
                 ✏️ Compose
@@ -604,7 +652,11 @@ function App() {
         />
 
         <button
-          onClick={() => setCurrentView("compose")}
+          onClick={() => {
+            setResubmitMiv(null);
+            setCurrentView("compose");
+            setSelectedMiv(null);
+          }}
           className="compose-btn"
         >
           + New Conversation
@@ -669,6 +721,7 @@ function App() {
               className={currentView === "conversations" ? "active" : ""}
               onClick={() => {
                 setCurrentView("conversations");
+                setSelectedMiv(null);
                 setMobileMenuOpen(false);
               }}
             >
@@ -693,6 +746,7 @@ function App() {
               className={currentView === "contacts" ? "active" : ""}
               onClick={() => {
                 setCurrentView("contacts");
+                setSelectedMiv(null);
                 setMobileMenuOpen(false);
               }}
             >
@@ -702,6 +756,7 @@ function App() {
               className={currentView === "notifications" ? "active" : ""}
               onClick={() => {
                 setCurrentView("notifications");
+                setSelectedMiv(null);
                 setMobileMenuOpen(false);
               }}
             >
@@ -716,6 +771,7 @@ function App() {
               className={currentView === "settings" ? "active" : ""}
               onClick={() => {
                 setCurrentView("settings");
+                setSelectedMiv(null);
                 setMobileMenuOpen(false);
               }}
             >
@@ -734,7 +790,10 @@ function App() {
 
         <div className="sidebar-footer">
           <button
-            onClick={() => setCurrentView("settings")}
+            onClick={() => {
+              setCurrentView("settings");
+              setSelectedMiv(null);
+            }}
             className="btn-settings"
             title="Settings"
           >
@@ -762,9 +821,13 @@ function App() {
         ) : currentView === "compose" ? (
           <ComposeMiv
             onSend={handleSendConversation}
-            onCancel={() => setCurrentView("baskets")}
+            onCancel={() => {
+              setResubmitMiv(null);
+              setCurrentView("baskets");
+            }}
             deskId={activeDesk.id}
             desk={activeDesk}
+            resubmitMiv={resubmitMiv}
           />
         ) : currentView === "notifications" ? (
           <div className="notifications-view">
@@ -806,6 +869,8 @@ function App() {
                   onForget={handleMivForget}
                   onDeleteCc={handleDeleteCc}
                   onBack={handleBackToBasket}
+                  onResubmit={handleResubmit}
+                  isArchived={selectedBasket === "ARCHIVED"}
                 />
               ) : (
                 <div className="empty-selection">
@@ -846,6 +911,8 @@ function App() {
                   onForget={handleMivForget}
                   onDeleteCc={handleDeleteCc}
                   onBack={handleBackToBasket}
+                  onResubmit={handleResubmit}
+                  isArchived={false}
                 />
               ) : (
                 <div className="empty-selection">

@@ -107,6 +107,23 @@
   white-space: nowrap;
 }
 
+.basket-via {
+  font-weight: 500;
+  color: #2185d0;
+  font-size: 13px;
+  font-family: Arial, Tahoma, sans-serif;
+  flex-shrink: 0;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.basket-via .via-rejected {
+  color: #db2828;
+  font-weight: 600;
+}
+
 .basket-date {
   font-size: 13px;
   color: #666666;

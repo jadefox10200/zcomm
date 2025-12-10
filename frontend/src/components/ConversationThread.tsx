@@ -123,19 +123,16 @@ function ConversationThread({
     }
   };
 
-  // Ping-pong style: only show reply buttons if latest miv is to us and unanswered
+  // Ping-pong style: only show reply buttons if user has an actionable miv (IN or PENDING)
   const shouldShowReplyButtons = () => {
     if (!conversation || conversation.mivs.length === 0) return false;
 
-    const latestMiv = conversation.mivs[conversation.mivs.length - 1];
-
-    // Only show if the latest message is TO us (not from us)
-    if (latestMiv.to !== currentDeskId) return false;
-
-    // Don't show if archived
-    if (conversation.conversation.is_archived) return false;
-
-    return true;
+    // Check if user has any miv in IN or PENDING state
+    return conversation.mivs.some(
+      (m) =>
+        (m.state === "IN" || m.state === "PENDING") &&
+        m.arrow_to === currentDeskId
+    );
   };
 
   const isLatestMivAck = () => {

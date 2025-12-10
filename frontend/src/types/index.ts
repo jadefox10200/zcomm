@@ -34,6 +34,7 @@ export interface Identity {
 export interface CreateMivRequest {
   to: string;
   cc?: string[];
+  via?: string[];
   subject: string;
   body: string;
   font_family?: string;
@@ -146,10 +147,17 @@ export interface ConversationMiv {
   is_forgotten: boolean;
   font_family?: string;
   font_size?: string;
+  via?: string[];
+  via_index: number;
+  is_via_rejected: boolean;
+  via_rejected_by?: string;
+  via_rejection?: string;
+  rejected_miv_id?: string;
 }
 
 export interface CreateConversationRequest {
   to: string;
+  via?: string[];
   cc?: string[];
   subject: string;
   body: string;

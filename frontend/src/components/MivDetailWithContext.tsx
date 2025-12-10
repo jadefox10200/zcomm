@@ -20,6 +20,8 @@ interface MivDetailWithContextProps {
   onForget?: () => void; // Callback when miv is forgotten
   onDeleteCc?: (conversationId: string) => void; // Callback when CC recipient deletes
   onBack?: () => void; // Callback to go back to basket view
+  onResubmit?: (miv: ConversationMiv) => void; // Callback to resubmit a rejected via routing message
+  isArchived?: boolean; // Whether viewing from archived conversations
 }
 
 function MivDetailWithContext({
@@ -30,6 +32,8 @@ function MivDetailWithContext({
   onForget,
   onDeleteCc,
   onBack,
+  onResubmit,
+  isArchived = false,
 }: MivDetailWithContextProps) {
   const [conversation, setConversation] =
     useState<GetConversationResponse | null>(null);
@@ -40,12 +44,16 @@ function MivDetailWithContext({
   const [ackBody, setAckBody] = useState("");
   const [showForgetConfirm, setShowForgetConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showViaReject, setShowViaReject] = useState(false);
+  const [viaRejectReason, setViaRejectReason] = useState("");
   const [showPreview, setShowPreview] = useState(false);
   const [loading, setLoading] = useState(true);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [showAddContactModal, setShowAddContactModal] = useState(false);
   const [newContactName, setNewContactName] = useState("");
   const [newContactDeskId, setNewContactDeskId] = useState("");
+  const [originalRejectedMiv, setOriginalRejectedMiv] =
+    useState<ConversationMiv | null>(null);
 
   useEffect(() => {
     const loadData = async () => {
@@ -62,8 +70,29 @@ function MivDetailWithContext({
         const currentMiv = mivArray.find((m) => m.id === miv.id) || miv;
         setSelectedMiv(currentMiv);
 
+        // If this is a rejection notice, load the original rejected MIV for resubmit
+        if (currentMiv.rejected_miv_id) {
+          const originalMiv = mivArray.find(
+            (m) => m.id === currentMiv.rejected_miv_id
+          );
+          if (originalMiv) {
+            setOriginalRejectedMiv(originalMiv);
+          }
+        }
+
         // Mark message as read (move from IN/CC to PENDING) if it's currently in IN or CC state
-        if (currentMiv.state === "IN" || currentMiv.state === "CC") {
+        // BUT: Don't mark as read if current user is a via recipient (they're just routing, not reading)
+        const isViaRecipient =
+          currentMiv.via &&
+          currentMiv.via.length > 0 &&
+          !currentMiv.is_via_rejected &&
+          currentMiv.via_index < currentMiv.via.length &&
+          currentMiv.via[currentMiv.via_index] === currentDeskId;
+
+        if (
+          (currentMiv.state === "IN" || currentMiv.state === "CC") &&
+          !isViaRecipient
+        ) {
           try {
             const updatedMiv = await api.markMivAsRead(
               currentMiv.id,
@@ -165,6 +194,8 @@ function MivDetailWithContext({
       is_forgotten: false,
       font_family: currentDesk?.font_family,
       font_size: currentDesk?.font_size,
+      via_index: 0,
+      is_via_rejected: false,
     };
 
     // Update conversation immediately
@@ -223,6 +254,8 @@ function MivDetailWithContext({
       is_forgotten: false,
       font_family: currentDesk?.font_family,
       font_size: currentDesk?.font_size,
+      via_index: 0,
+      is_via_rejected: false,
     };
 
     // Update conversation immediately
@@ -256,6 +289,65 @@ function MivDetailWithContext({
         });
       }
       alert("Failed to send ACK. Please try again.");
+    }
+  };
+
+  // Check if current user is the current via recipient
+  const isCurrentViaRecipient = () => {
+    if (!selectedMiv.via || selectedMiv.via.length === 0) return false;
+    if (selectedMiv.is_via_rejected) return false;
+
+    const currentViaIndex = selectedMiv.via_index;
+    if (currentViaIndex >= selectedMiv.via.length) return false;
+
+    return selectedMiv.via[currentViaIndex] === currentDeskId;
+  };
+
+  const handleApproveVia = async () => {
+    try {
+      await api.approveViaRouting(selectedMiv.id, currentDeskId);
+
+      // Reload conversation to show updated state
+      const updatedConv = await api.getConversation(
+        selectedMiv.conversation_id
+      );
+      setConversation(updatedConv);
+
+      // Navigate back or to IN basket to see updated state
+      onBack?.();
+    } catch (err) {
+      console.error("Failed to approve via routing:", err);
+      alert("Failed to approve routing. Please try again.");
+    }
+  };
+
+  const handleRejectVia = async () => {
+    if (!viaRejectReason.trim()) {
+      alert("Please provide a reason for rejection.");
+      return;
+    }
+
+    try {
+      await api.rejectViaRouting(
+        selectedMiv.id,
+        currentDeskId,
+        viaRejectReason
+      );
+
+      // Reload conversation to show updated state
+      const updatedConv = await api.getConversation(
+        selectedMiv.conversation_id
+      );
+      setConversation(updatedConv);
+
+      setShowViaReject(false);
+      setViaRejectReason("");
+
+      // Navigate back or to IN basket to see updated state
+      onBack?.();
+    } catch (err) {
+      console.error("Failed to reject via routing:", err);
+      alert("Failed to reject routing. Please try again.");
     }
   };
 
@@ -299,6 +391,14 @@ function MivDetailWithContext({
     } catch (err) {
       console.error("Failed to remove CC miv:", err);
       alert("Failed to remove message. Please try again.");
+    }
+  };
+
+  const handleResubmit = () => {
+    if (onResubmit) {
+      // Use the original rejected MIV if available, otherwise fall back to current MIV
+      const mivToResubmit = originalRejectedMiv || selectedMiv;
+      onResubmit(mivToResubmit);
     }
   };
 
@@ -375,6 +475,34 @@ function MivDetailWithContext({
     setShowAddContactModal(true);
   };
 
+  // Check if user has an actionable miv (IN or PENDING) in this conversation
+  const hasActionableMiv = () => {
+    if (!conversation || !conversation.mivs) return false;
+    return conversation.mivs.some(
+      (m) =>
+        (m.state === "IN" || m.state === "PENDING") &&
+        m.arrow_to === currentDeskId
+    );
+  };
+
+  // Check if the selected MIV is the latest in the conversation
+  const isLatestMiv = () => {
+    if (!conversation || !conversation.mivs || conversation.mivs.length === 0)
+      return false;
+    const latestMiv = conversation.mivs[conversation.mivs.length - 1];
+    return selectedMiv.id === latestMiv.id;
+  };
+
+  // Check if actions should be shown (not archived and viewing latest MIV)
+  // Exception: CC mivs are individual copies and can always be acted upon
+  const canShowActions = () => {
+    if (isArchived) return false;
+    // CC mivs can always be acted upon since they are individual copies
+    if (selectedMiv.type === "CC") return true;
+    // For all other miv types, only allow actions on the latest one
+    return isLatestMiv();
+  };
+
   if (loading || !conversation) {
     return (
       <div className="miv-detail-with-context">
@@ -446,6 +574,62 @@ function MivDetailWithContext({
                       </button>
                     )}
                 </div>
+                {selectedMiv.via && selectedMiv.via.length > 0 && (
+                  <div className="epistle-field">
+                    <span className="epistle-field-label">via:</span>
+                    <span className="epistle-field-value">
+                      {selectedMiv.via.map((viaRecipient, idx) => {
+                        const displayName = getDisplayName(viaRecipient);
+
+                        // For CC copies, show arrow to whoever matches arrow_to (the CC recipient viewing this copy)
+                        // For regular mivs, show arrow to current via recipient based on via_index
+                        let isCurrent = false;
+                        if (selectedMiv.type === "CC") {
+                          // For CC copies, arrow points to the CC recipient (arrow_to)
+                          isCurrent = viaRecipient === selectedMiv.arrow_to;
+                        } else {
+                          // For regular mivs, arrow follows via_index
+                          isCurrent = idx === selectedMiv.via_index;
+                        }
+
+                        const hasPassed = idx < (selectedMiv.via_index || 0);
+
+                        let statusSuffix = "";
+                        if (isCurrent) {
+                          statusSuffix = " ←";
+                        } else if (hasPassed) {
+                          statusSuffix = " [OK]";
+                        }
+
+                        return (
+                          <span key={idx}>
+                            {idx > 0 && ", "}
+                            {displayName}
+                            {statusSuffix}
+                            {!isContact(viaRecipient) &&
+                              !isOwnDeskId(viaRecipient) && (
+                                <button
+                                  className="btn-add-contact-inline"
+                                  onClick={() =>
+                                    openAddContactModal(viaRecipient)
+                                  }
+                                  title="Add as contact"
+                                >
+                                  + Add Contact
+                                </button>
+                              )}
+                          </span>
+                        );
+                      })}
+                      {selectedMiv.is_via_rejected && (
+                        <span style={{ color: "#db2828", fontWeight: "600" }}>
+                          {" "}
+                          [REJECTED]
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                )}
                 <div className="epistle-field">
                   <span className="epistle-field-label">From:</span>
                   <span className="epistle-field-value">
@@ -527,21 +711,68 @@ function MivDetailWithContext({
 
           <div className="miv-actions">
             {/* CC recipient actions - only for CC type mivs */}
-            {selectedMiv.type === "CC" && !selectedMiv.is_forgotten && (
-              <>
-                <button className="btn btn-danger" onClick={handleDeleteCc}>
-                  Remove
-                </button>
-              </>
-            )}
+            {canShowActions() &&
+              selectedMiv.type === "CC" &&
+              !selectedMiv.is_forgotten && (
+                <>
+                  <button className="btn btn-danger" onClick={handleDeleteCc}>
+                    Remove
+                  </button>
+                </>
+              )}
 
-            {/* Normal recipient actions - for non-CC mivs */}
-            {selectedMiv.type !== "CC" &&
+            {/* Via routing actions - show OK/Reject if current user is the current via recipient */}
+            {canShowActions() &&
+              isCurrentViaRecipient() &&
+              !showViaReject &&
+              !showForgetConfirm &&
+              !showDeleteConfirm && (
+                <>
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleApproveVia}
+                  >
+                    OK (Forward)
+                  </button>
+                  <button
+                    className="btn btn-danger"
+                    onClick={() => setShowViaReject(true)}
+                  >
+                    Reject
+                  </button>
+                </>
+              )}
+
+            {/* Resubmit/Delete options for rejected via routing messages (for original sender) */}
+            {canShowActions() &&
+              selectedMiv.rejected_miv_id &&
+              !showForgetConfirm &&
+              !showDeleteConfirm &&
+              onResubmit && (
+                <>
+                  <button className="btn btn-primary" onClick={handleResubmit}>
+                    Resubmit
+                  </button>
+                  <button
+                    className="btn btn-danger"
+                    onClick={() => setShowDeleteConfirm(true)}
+                  >
+                    Delete
+                  </button>
+                </>
+              )}
+
+            {/* Normal recipient actions - only show if user has an actionable miv (IN or PENDING) and NOT a via recipient and NOT a rejection notice */}
+            {canShowActions() &&
+              selectedMiv.type !== "CC" &&
               selectedMiv.arrow_to === currentDeskId &&
+              !isCurrentViaRecipient() &&
+              !selectedMiv.rejected_miv_id &&
               !showReply &&
               !showAckConfirm &&
               !showForgetConfirm &&
-              !showDeleteConfirm && (
+              !showDeleteConfirm &&
+              hasActionableMiv() && (
                 <>
                   {selectedMiv.is_ack ? (
                     // For ACK mivs, show "Answer" and "Delete" buttons
@@ -580,7 +811,8 @@ function MivDetailWithContext({
               )}
 
             {/* Add forget button for sent messages */}
-            {selectedMiv.from === currentDeskId &&
+            {canShowActions() &&
+              selectedMiv.from === currentDeskId &&
               !selectedMiv.is_forgotten &&
               selectedMiv.state === "SENT" &&
               !showForgetConfirm && (
@@ -663,6 +895,38 @@ function MivDetailWithContext({
                   onClick={() => {
                     setShowAckConfirm(false);
                     setAckBody("");
+                  }}
+                  className="btn"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {showViaReject && (
+            <div className="ack-confirm">
+              <h3>Reject Routing</h3>
+              <p>
+                This will send the message back to the sender with your
+                rejection reason.
+              </p>
+              <textarea
+                className="ack-body"
+                value={viaRejectReason}
+                onChange={(e) => setViaRejectReason(e.target.value)}
+                placeholder="Required: Enter reason for rejection..."
+                rows={4}
+                required
+              />
+              <div className="ack-actions">
+                <button onClick={handleRejectVia} className="btn btn-danger">
+                  Reject and Return
+                </button>
+                <button
+                  onClick={() => {
+                    setShowViaReject(false);
+                    setViaRejectReason("");
                   }}
                   className="btn"
                 >

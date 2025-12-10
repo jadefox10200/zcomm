@@ -44,11 +44,18 @@ type ConversationMiv struct {
 	IsForgotten    bool       `json:"is_forgotten"`          // Whether this miv has been forgotten (stops tracking replies)
 	FontFamily     *string    `json:"font_family,omitempty"` // Font family for message display
 	FontSize       *string    `json:"font_size,omitempty"`   // Font size for message display
+	Via            []string   `json:"via,omitempty"`         // Via routing: array of intermediate desk IDs
+	ViaIndex       int        `json:"via_index"`             // Current position in via routing (0-based)
+	IsViaRejected  bool       `json:"is_via_rejected"`       // Whether via routing was rejected
+	ViaRejectedBy  string     `json:"via_rejected_by,omitempty"` // Who rejected the via routing
+	ViaRejection   string     `json:"via_rejection,omitempty"`   // Reason for via rejection
+	RejectedMivID  string     `json:"rejected_miv_id,omitempty"` // ID of the original MIV if this is a rejection notice
 }
 
 // CreateConversationRequest represents a request to create a new conversation
 type CreateConversationRequest struct {
 	To         string    `json:"to" binding:"required"`
+	Via        []string  `json:"via,omitempty"`        // Via routing: array of intermediate desk IDs
 	Cc         []string  `json:"cc,omitempty"`         // Optional CC recipients
 	Subject    string    `json:"subject" binding:"required"`
 	Body       string    `json:"body" binding:"required"`
@@ -76,6 +83,16 @@ type ConversationWithLatest struct {
 	Conversation *Conversation    `json:"conversation"`
 	LatestMiv    *ConversationMiv `json:"latest_miv,omitempty"`
 	UnreadCount  int              `json:"unread_count"`
+}
+
+// ApproveViaRoutingRequest represents a request to approve via routing
+type ApproveViaRoutingRequest struct {
+	// No fields needed - desk_id comes from query parameter
+}
+
+// RejectViaRoutingRequest represents a request to reject via routing
+type RejectViaRoutingRequest struct {
+	Reason string `json:"reason" binding:"required"` // Reason for rejection
 }
 
 // GetConversationResponse represents a conversation with all its mivs

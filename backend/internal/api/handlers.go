@@ -39,6 +39,9 @@ func (s *Server) registerAccount(c *gin.Context) {
 		return
 	}
 
+	// Normalize username to lowercase
+	req.Username = strings.ToLower(req.Username)
+
 	// Hash the password
 	passwordHash, err := crypto.HashPassword(req.Password)
 	if err != nil {
@@ -140,6 +143,9 @@ func (s *Server) loginAccount(c *gin.Context) {
 		return
 	}
 
+	// Normalize username to lowercase
+	req.Username = strings.ToLower(req.Username)
+
 	// Get account by username
 	account, err := s.storage.GetAccountByUsername(req.Username)
 	if err != nil {
@@ -174,6 +180,9 @@ func (s *Server) recoverPassword(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	// Normalize username to lowercase
+	req.Username = strings.ToLower(req.Username)
 
 	// Get account by username
 	account, err := s.storage.GetAccountByUsername(req.Username)
@@ -542,6 +551,23 @@ func (s *Server) createConversation(c *gin.Context) {
 		return
 	}
 
+	// Validate that via recipient desks exist and are not the same as final recipient
+	for _, viaRecipient := range req.Via {
+		if viaRecipient != "" {
+			normalizedVia := crypto.NormalizeDeskID(viaRecipient)
+			_, err := s.storage.GetDesk(normalizedVia)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Via recipient desk '%s' does not exist. Please verify the desk number and try again.", viaRecipient)})
+				return
+			}
+			// Check via recipient is not the same as final recipient
+			if normalizedVia == normalizedTo {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Via recipient cannot be the same as the final recipient"})
+				return
+			}
+		}
+	}
+
 	// Validate that CC recipient desks exist
 	for _, ccRecipient := range req.Cc {
 		if ccRecipient != "" {
@@ -566,13 +592,19 @@ func (s *Server) createConversation(c *gin.Context) {
 	}
 
 	// Create first miv (for primary recipient)
+	// If via routing is specified, first recipient is the first via person
+	actualRecipient := req.To
+	if len(req.Via) > 0 {
+		actualRecipient = req.Via[0] // First via recipient gets it first
+	}
+
 	miv := &models.ConversationMiv{
 		ConversationID: conv.ID,
 		SeqNo:          1,
 		From:           deskID,
-		To:             req.To, // Original recipient for display
+		To:             req.To, // Final recipient for display
 		Cc:             req.Cc, // Include CC recipients in the miv
-		ArrowTo:        req.To, // Who actually receives this piece of paper
+		ArrowTo:        actualRecipient, // Who actually receives this piece of paper NOW
 		Type:           models.MivTypeMiv, // Regular message
 		Subject:        req.Subject,
 		Body:           base64.StdEncoding.EncodeToString([]byte(req.Body)),
@@ -580,6 +612,9 @@ func (s *Server) createConversation(c *gin.Context) {
 		IsEncrypted:    false,
 		FontFamily:     req.FontFamily,
 		FontSize:       req.FontSize,
+		Via:            req.Via,   // Via routing array
+		ViaIndex:       0,         // Start at first via recipient
+		IsViaRejected:  false,
 	}
 
 	if err := s.storage.CreateConversationMiv(miv); err != nil {
@@ -587,9 +622,10 @@ func (s *Server) createConversation(c *gin.Context) {
 		return
 	}
 
-	// Create notification for recipient
+	// Create notification for recipient (actual current recipient)
+	normalizedRecipient := crypto.NormalizeDeskID(actualRecipient)
 	notification := &models.Notification{
-		DeskID:         normalizedTo, // Use normalized ID for routing
+		DeskID:         normalizedRecipient, // Use normalized ID for routing
 		Type:           models.NotificationTypeNewMiv,
 		MivID:          miv.ID,
 		ConversationID: conv.ID,
@@ -629,6 +665,9 @@ func (s *Server) createConversation(c *gin.Context) {
 				IsEncrypted:    false,
 				FontFamily:     req.FontFamily,
 				FontSize:       req.FontSize,
+				Via:            req.Via,   // Include via routing for display
+				ViaIndex:       0,         // Via routing info for display only (CC doesn't participate in routing)
+				IsViaRejected:  false,
 			}
 
 			if err := s.storage.CreateConversationMiv(ccMiv); err != nil {
@@ -688,13 +727,30 @@ func (s *Server) replyToConversation(c *gin.Context) {
 
 	// Determine recipient (the other party in the conversation)
 	var recipientID string
+	var viaRecipients []string
 	for _, m := range mivs {
 		if m.From != deskID {
 			recipientID = m.From
+			// If the original message had via routing, reverse it for the reply
+			if len(m.Via) > 0 {
+				// Reverse the via array for reply routing
+				viaRecipients = make([]string, len(m.Via))
+				for i := range m.Via {
+					viaRecipients[i] = m.Via[len(m.Via)-1-i]
+				}
+			}
 			break
 		}
 		if m.To != deskID {
 			recipientID = m.To
+			// If the original message had via routing, reverse it for the reply
+			if len(m.Via) > 0 {
+				// Reverse the via array for reply routing
+				viaRecipients = make([]string, len(m.Via))
+				for i := range m.Via {
+					viaRecipients[i] = m.Via[len(m.Via)-1-i]
+				}
+			}
 			break
 		}
 	}
@@ -741,13 +797,22 @@ func (s *Server) replyToConversation(c *gin.Context) {
 		}
 	}
 
-	// Create reply miv with CC information
+	// Create reply miv with CC information and via routing
+	// Determine the actual recipient based on via routing
+	actualRecipient := recipientID
+	if len(viaRecipients) > 0 {
+		// If there's via routing, the first via recipient gets it
+		actualRecipient = viaRecipients[0]
+	}
+
 	miv := &models.ConversationMiv{
 		ConversationID: conversationID,
 		From:           deskID,
 		To:             recipientID,
+		Via:            viaRecipients, // Reversed via routing for reply
+		ViaIndex:       0, // Start at beginning of via chain
 		Cc:             ccRecipients, // Include all CC recipients from conversation history
-		ArrowTo:        recipientID, // Who receives this reply
+		ArrowTo:        actualRecipient, // Who actually receives this reply (first via or final recipient)
 		Type:           models.MivTypeMiv, // Regular message
 		Subject:        conv.Subject,
 		Body:           base64.StdEncoding.EncodeToString([]byte(req.Body)),
@@ -761,6 +826,16 @@ func (s *Server) replyToConversation(c *gin.Context) {
 	if err := s.storage.CreateConversationMiv(miv); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create reply"})
 		return
+	}
+
+	// Create notification for the actual recipient (via or final)
+	replyNotification := &models.Notification{
+		DeskID:  actualRecipient,
+		Message: fmt.Sprintf("New message in conversation: %s", conv.Subject),
+		Type:    "conversation_reply",
+	}
+	if err := s.storage.CreateNotification(replyNotification); err != nil {
+		log.Printf("Failed to create notification: %v", err)
 	}
 
 	log.Printf("DEBUG: Found %d CC recipients for reply: %v", len(ccRecipients), ccRecipients)
@@ -819,6 +894,9 @@ func (s *Server) replyToConversation(c *gin.Context) {
 				IsAck:          req.IsAck,
 				FontFamily:     req.FontFamily,
 				FontSize:       req.FontSize,
+				Via:            viaRecipients, // Include via routing for display
+				ViaIndex:       0,             // Via routing info for display only
+				IsViaRejected:  false,
 			}
 			
 			if err := s.storage.CreateConversationMiv(ccReplyMiv); err != nil {
@@ -851,16 +929,46 @@ func (s *Server) replyToConversation(c *gin.Context) {
 		}
 	}
 
-	// If conversation was archived but we got a reply, unarchive it
-	if conv.IsArchived {
-		conv.IsArchived = false
-		s.storage.UpdateConversation(conv)
-	}
-
-	// If this is an ACK, archive the conversation for the sender
+	// If this is an ACK, archive the conversation for everyone
 	if req.IsAck {
 		conv.IsArchived = true
 		s.storage.UpdateConversation(conv)
+		
+		// Also archive CC conversations if this is an ACK
+		for _, ccRecipient := range ccRecipients {
+			ccSubject := fmt.Sprintf("CC: %s", conv.Subject)
+			ccConvs, err := s.storage.ListConversationsByDesk(ccRecipient)
+			if err != nil {
+				continue
+			}
+			for _, c := range ccConvs {
+				if c.Subject == ccSubject && c.DeskID == ccRecipient {
+					c.IsArchived = true
+					s.storage.UpdateConversation(c)
+					break
+				}
+			}
+		}
+	} else if conv.IsArchived {
+		// If conversation was archived but we got a non-ACK reply, unarchive it for everyone
+		conv.IsArchived = false
+		s.storage.UpdateConversation(conv)
+		
+		// Also unarchive CC conversations when replying from archive
+		for _, ccRecipient := range ccRecipients {
+			ccSubject := fmt.Sprintf("CC: %s", conv.Subject)
+			ccConvs, err := s.storage.ListConversationsByDesk(ccRecipient)
+			if err != nil {
+				continue
+			}
+			for _, c := range ccConvs {
+				if c.Subject == ccSubject && c.DeskID == ccRecipient {
+					c.IsArchived = false
+					s.storage.UpdateConversation(c)
+					break
+				}
+			}
+		}
 	}
 
 	// Create notification for recipient
@@ -1501,4 +1609,272 @@ func generateUniqueID() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(bytes), nil
+}
+
+// Via routing handlers
+
+func (s *Server) approveViaRouting(c *gin.Context) {
+	mivID := c.Param("id")
+	deskID := c.Query("desk_id")
+	if deskID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "desk_id is required"})
+		return
+	}
+
+	// Get the miv
+	miv, err := s.storage.GetConversationMiv(mivID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Miv not found"})
+		return
+	}
+
+	// Verify this user is the current via recipient
+	if len(miv.Via) == 0 || miv.ViaIndex >= len(miv.Via) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "This miv is not in via routing"})
+		return
+	}
+
+	currentViaRecipient := miv.Via[miv.ViaIndex]
+	normalizedDesk := crypto.NormalizeDeskID(deskID)
+	normalizedVia := crypto.NormalizeDeskID(currentViaRecipient)
+	if normalizedDesk != normalizedVia {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You are not authorized to approve this via routing"})
+		return
+	}
+
+	// Move to next recipient
+	miv.ViaIndex++
+	
+	// Reset the state to IN for the next recipient (whether via intermediary or final recipient)
+	// This ensures the MIV appears in the next person's IN basket
+	miv.State = models.StateIN
+	miv.ReadAt = nil  // Clear read timestamp so it shows as unread for next recipient
+	
+	// Determine next recipient
+	if miv.ViaIndex < len(miv.Via) {
+		// Forward to next via recipient
+		miv.ArrowTo = miv.Via[miv.ViaIndex]
+		nextRecipient := crypto.NormalizeDeskID(miv.ArrowTo)
+		
+		// Create notification for next via recipient
+		notification := &models.Notification{
+			DeskID:         nextRecipient,
+			Type:           models.NotificationTypeReply,
+			MivID:          miv.ID,
+			ConversationID: miv.ConversationID,
+			Message:        fmt.Sprintf("Via routing from %s: %s", deskID, miv.Subject),
+			Read:           false,
+		}
+		s.storage.CreateNotification(notification)
+	} else {
+		// Reached the end of via chain, deliver to final recipient
+		miv.ArrowTo = miv.To
+		finalRecipient := crypto.NormalizeDeskID(miv.To)
+		
+		// Create notification for final recipient
+		notification := &models.Notification{
+			DeskID:         finalRecipient,
+			Type:           models.NotificationTypeNewMiv,
+			MivID:          miv.ID,
+			ConversationID: miv.ConversationID,
+			Message:        fmt.Sprintf("New message from %s: %s", miv.From, miv.Subject),
+			Read:           false,
+		}
+		s.storage.CreateNotification(notification)
+	}
+
+	// Update the miv
+	if err := s.storage.UpdateConversationMiv(miv); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update miv"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Via routing approved", "miv": miv})
+}
+
+func (s *Server) rejectViaRouting(c *gin.Context) {
+	mivID := c.Param("id")
+	deskID := c.Query("desk_id")
+	if deskID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "desk_id is required"})
+		return
+	}
+
+	var req models.RejectViaRoutingRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Get the miv
+	miv, err := s.storage.GetConversationMiv(mivID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Miv not found"})
+		return
+	}
+
+	// Verify this user is the current via recipient
+	if len(miv.Via) == 0 || miv.ViaIndex >= len(miv.Via) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "This miv is not in via routing"})
+		return
+	}
+
+	currentViaRecipient := miv.Via[miv.ViaIndex]
+	normalizedDesk := crypto.NormalizeDeskID(deskID)
+	normalizedVia := crypto.NormalizeDeskID(currentViaRecipient)
+	if normalizedDesk != normalizedVia {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You are not authorized to reject this via routing"})
+		return
+	}
+
+	// Get all mivs to determine next sequence number
+	mivs, err := s.storage.GetConversationMivs(miv.ConversationID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get conversation mivs"})
+		return
+	}
+	nextSeqNo := len(mivs) + 1
+
+	// Create a rejection message body
+	rejectionBody := fmt.Sprintf("<p><strong>Via Routing Rejected</strong></p><p>Your message was rejected by %s during via routing.</p><p><strong>Reason:</strong> %s</p><p><strong>Original Subject:</strong> %s</p>", deskID, req.Reason, miv.Subject)
+
+	// Create a new MIV in the conversation as a rejection notice
+	// This will arrive in the sender's IN basket like a normal reply
+	rejectionMiv := &models.ConversationMiv{
+		ConversationID: miv.ConversationID,
+		SeqNo:          nextSeqNo,
+		From:           deskID,           // From the person who rejected
+		To:             miv.From,         // To the original sender
+		ArrowTo:        miv.From,         // Deliver to sender
+		Type:           "MIV",
+		Subject:        fmt.Sprintf("REJECTED: %s", miv.Subject),
+		Body:           base64.StdEncoding.EncodeToString([]byte(rejectionBody)),
+		State:          models.StateIN,   // Will arrive in sender's IN basket
+		IsEncrypted:    false,
+		IsAck:          true,             // Mark as ACK-like so it doesn't show in rejector's OUT basket
+		FontFamily:     miv.FontFamily,
+		FontSize:       miv.FontSize,
+		Via:            []string{},       // No via routing on the rejection
+		ViaIndex:       0,
+		IsViaRejected:  false,
+		RejectedMivID:  miv.ID,          // Store reference to original MIV for resubmit
+	}
+
+	if err := s.storage.CreateConversationMiv(rejectionMiv); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create rejection miv"})
+		return
+	}
+
+	// Mark the original miv as forgotten so it doesn't show up in anyone's baskets anymore
+	miv.IsForgotten = true
+	if err := s.storage.UpdateConversationMiv(miv); err != nil {
+		log.Printf("ERROR: Failed to mark original miv as forgotten: %v", err)
+	}
+
+	// Create notification for sender about rejection
+	normalizedSender := crypto.NormalizeDeskID(miv.From)
+	message := fmt.Sprintf("Via routing rejected by %s: %s", deskID, miv.Subject)
+
+	notification := &models.Notification{
+		DeskID:         normalizedSender,
+		Type:           models.NotificationTypeReply,
+		MivID:          rejectionMiv.ID,
+		ConversationID: miv.ConversationID,
+		Message:        message,
+		Read:           false,
+	}
+	s.storage.CreateNotification(notification)
+
+	// Send rejection notices to all CC recipients
+	// Each CC recipient gets a copy in their own CC conversation
+	if len(miv.Cc) > 0 {
+		log.Printf("DEBUG: Sending rejection notices to %d CC recipients", len(miv.Cc))
+		
+		for _, ccRecipient := range miv.Cc {
+			if ccRecipient == "" || ccRecipient == miv.From || ccRecipient == deskID {
+				continue // Skip empty, sender, and rejector
+			}
+			
+			normalizedCc := crypto.NormalizeDeskID(ccRecipient)
+			
+			// Find the CC conversation for this recipient
+			conv, err := s.storage.GetConversation(miv.ConversationID)
+			if err != nil {
+				log.Printf("ERROR: Failed to get conversation for CC rejection: %v", err)
+				continue
+			}
+			
+			ccSubject := fmt.Sprintf("CC: %s", conv.Subject)
+			
+			// Get all conversations for this CC recipient to find their CC conversation
+			ccConvs, err := s.storage.ListConversationsByDesk(ccRecipient)
+			if err != nil {
+				log.Printf("ERROR: Failed to get conversations for CC recipient %s: %v", ccRecipient, err)
+				continue
+			}
+			
+			var ccConv *models.Conversation
+			for _, c := range ccConvs {
+				if c.Subject == ccSubject && c.DeskID == ccRecipient {
+					ccConv = c
+					break
+				}
+			}
+			
+			if ccConv != nil {
+				// Get existing mivs in CC conversation to determine next SeqNo
+				ccMivs, err := s.storage.GetConversationMivs(ccConv.ID)
+				if err != nil {
+					log.Printf("ERROR: Failed to get mivs for CC conversation %s: %v", ccConv.ID, err)
+					continue
+				}
+				
+				ccNextSeqNo := len(ccMivs) + 1
+				
+				// Create CC copy of the rejection notice
+				ccRejectionMiv := &models.ConversationMiv{
+					ConversationID: ccConv.ID,
+					SeqNo:          ccNextSeqNo,
+					From:           deskID,
+					To:             miv.From,
+					Cc:             miv.Cc,
+					ArrowTo:        ccRecipient,
+					Type:           models.MivTypeCC,
+					Subject:        fmt.Sprintf("REJECTED: %s", conv.Subject),
+					Body:           base64.StdEncoding.EncodeToString([]byte(rejectionBody)),
+					State:          models.StateCC,
+					IsEncrypted:    false,
+					IsAck:          false, // CC recipients see it as a regular message
+					FontFamily:     miv.FontFamily,
+					FontSize:       miv.FontSize,
+					Via:            miv.Via,
+					ViaIndex:       miv.ViaIndex,
+					IsViaRejected:  false,
+					RejectedMivID:  miv.ID,
+				}
+				
+				if err := s.storage.CreateConversationMiv(ccRejectionMiv); err != nil {
+					log.Printf("ERROR: Failed to create CC rejection miv: %v", err)
+					continue
+				}
+				
+				log.Printf("DEBUG: Created CC rejection miv %s for recipient %s", ccRejectionMiv.ID, ccRecipient)
+				
+				// Create notification for CC recipient
+				ccNotification := &models.Notification{
+					DeskID:         normalizedCc,
+					Type:           models.NotificationTypeReply,
+					MivID:          ccRejectionMiv.ID,
+					ConversationID: ccConv.ID,
+					Message:        fmt.Sprintf("CC: Via routing rejected by %s: %s", deskID, conv.Subject),
+					Read:           false,
+				}
+				s.storage.CreateNotification(ccNotification)
+			} else {
+				log.Printf("DEBUG: No CC conversation found for recipient %s with subject %s", ccRecipient, ccSubject)
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Via routing rejected", "miv": rejectionMiv})
 }

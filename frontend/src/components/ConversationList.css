@@ -6,7 +6,7 @@
 }
 
 /* Import basket item styles for miv display */
-@import './BasketView.css';
+@import "./BasketView.css";
 
 .conversation-list.empty {
   display: flex;

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { CKEditor } from "@ckeditor/ckeditor5-react";
 import ClassicEditor from "@ckeditor/ckeditor5-build-classic";
-import { CreateMivRequest, Contact, Desk } from "../types";
+import { CreateMivRequest, Contact, Desk, ConversationMiv } from "../types";
 import * as api from "../api/client";
 import { uploadPlugin } from "../utils/ckEditorUploadAdapter";
 import { buildMessageWithTemplate } from "../utils/messageTemplate";
@@ -12,6 +12,7 @@ interface ComposeMivProps {
   onCancel: () => void;
   deskId: string;
   desk: Desk;
+  resubmitMiv?: ConversationMiv | null;
 }
 
 const ComposeMiv: React.FC<ComposeMivProps> = ({
@@ -19,8 +20,10 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
   onCancel,
   deskId,
   desk,
+  resubmitMiv,
 }) => {
   const [to, setTo] = useState("");
+  const [via, setVia] = useState<string[]>([]);
   const [cc, setCc] = useState<string[]>([]);
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
@@ -31,17 +34,20 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
     subject?: boolean;
     body?: boolean;
     cc?: number[]; // Array of indices for CC fields with errors
+    via?: number[]; // Array of indices for Via fields with errors
   }>({});
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [showContactDropdown, setShowContactDropdown] = useState(false);
+  const [showViaDropdowns, setShowViaDropdowns] = useState<boolean[]>([]);
   const [showCcDropdowns, setShowCcDropdowns] = useState<boolean[]>([]);
   const [contactSearchTerm, setContactSearchTerm] = useState("");
+  const [viaSearchTerms, setViaSearchTerms] = useState<string[]>([]);
   const [ccSearchTerms, setCcSearchTerms] = useState<string[]>([]);
   const [showPreview, setShowPreview] = useState(false);
   const [templateInitialized, setTemplateInitialized] = useState(false);
   const [showContactModal, setShowContactModal] = useState(false);
   const [contactModalTarget, setContactModalTarget] = useState<
-    "to" | { type: "cc"; index: number }
+    "to" | { type: "cc"; index: number } | { type: "via"; index: number }
   >("to");
   const [contactModalSearch, setContactModalSearch] = useState("");
   const errorRef = useRef<HTMLDivElement>(null);
@@ -87,10 +93,47 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
     templateInitialized,
   ]);
 
-  // Reset template flag when recipient changes
+  // Reset template flag when recipient changes (but not during resubmit)
   useEffect(() => {
-    setTemplateInitialized(false);
-  }, [to]);
+    if (!resubmitMiv) {
+      setTemplateInitialized(false);
+    }
+  }, [to, resubmitMiv]);
+
+  // Pre-populate fields when resubmitting a rejected via routing message
+  useEffect(() => {
+    if (resubmitMiv) {
+      // Decode body from base64 FIRST
+      let decodedBody = "";
+      try {
+        decodedBody = atob(resubmitMiv.body);
+      } catch (err) {
+        console.error("Failed to decode body:", err);
+      }
+
+      // Set all fields synchronously
+      setTo(resubmitMiv.to);
+      setVia(resubmitMiv.via || []);
+      setCc(resubmitMiv.cc || []);
+      setSubject(resubmitMiv.subject);
+      setBody(decodedBody);
+      setContactSearchTerm(resubmitMiv.to);
+      setViaSearchTerms(resubmitMiv.via || []);
+      setCcSearchTerms(resubmitMiv.cc || []);
+      setTemplateInitialized(true);
+    } else {
+      // Clear all fields when resubmitMiv is null (new conversation)
+      setTo("");
+      setVia([]);
+      setCc([]);
+      setSubject("");
+      setBody("");
+      setContactSearchTerm("");
+      setViaSearchTerms([]);
+      setCcSearchTerms([]);
+      setTemplateInitialized(false);
+    }
+  }, [resubmitMiv]);
 
   const filteredContacts = contacts.filter(
     (contact) =>
@@ -106,6 +149,17 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
           .includes(ccSearchTerms[index]?.toLowerCase() || "") ||
         contact.desk_id_ref.includes(
           ccSearchTerms[index]?.replace(/\D/g, "") || ""
+        )
+    );
+
+  const filteredViaContacts = (index: number) =>
+    contacts.filter(
+      (contact) =>
+        contact.name
+          .toLowerCase()
+          .includes(viaSearchTerms[index]?.toLowerCase() || "") ||
+        contact.desk_id_ref.includes(
+          viaSearchTerms[index]?.replace(/\D/g, "") || ""
         )
     );
 
@@ -129,7 +183,26 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
     setShowCcDropdowns(newShowCcDropdowns);
   };
 
-  const openContactModal = (target: "to" | { type: "cc"; index: number }) => {
+  const selectViaContact = (contact: Contact, index: number) => {
+    const newVia = [...via];
+    newVia[index] = contact.desk_id_ref;
+    setVia(newVia);
+
+    const newViaSearchTerms = [...viaSearchTerms];
+    newViaSearchTerms[index] = contact.name;
+    setViaSearchTerms(newViaSearchTerms);
+
+    const newShowViaDropdowns = [...showViaDropdowns];
+    newShowViaDropdowns[index] = false;
+    setShowViaDropdowns(newShowViaDropdowns);
+  };
+
+  const openContactModal = (
+    target:
+      | "to"
+      | { type: "cc"; index: number }
+      | { type: "via"; index: number }
+  ) => {
     setContactModalTarget(target);
     setContactModalSearch("");
     setShowContactModal(true);
@@ -160,6 +233,41 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
     const newCcSearchTerms = [...ccSearchTerms];
     newCcSearchTerms[index] = value;
     setCcSearchTerms(newCcSearchTerms);
+
+    const newShowCcDropdowns = [...showCcDropdowns];
+    newShowCcDropdowns[index] = value.length > 0;
+    setShowCcDropdowns(newShowCcDropdowns);
+  };
+
+  const addViaField = () => {
+    setVia([...via, ""]);
+    setViaSearchTerms([...viaSearchTerms, ""]);
+    setShowViaDropdowns([...showViaDropdowns, false]);
+  };
+
+  const removeViaField = (index: number) => {
+    const newVia = via.filter((_, i) => i !== index);
+    const newViaSearchTerms = viaSearchTerms.filter((_, i) => i !== index);
+    const newShowViaDropdowns = showViaDropdowns.filter((_, i) => i !== index);
+    setVia(newVia);
+    setViaSearchTerms(newViaSearchTerms);
+    setShowViaDropdowns(newShowViaDropdowns);
+  };
+
+  const updateViaField = (index: number, value: string) => {
+    const newVia = [...via];
+    newVia[index] = value;
+    setVia(newVia);
+  };
+
+  const updateViaSearchTerm = (index: number, value: string) => {
+    const newViaSearchTerms = [...viaSearchTerms];
+    newViaSearchTerms[index] = value;
+    setViaSearchTerms(newViaSearchTerms);
+
+    const newShowViaDropdowns = [...showViaDropdowns];
+    newShowViaDropdowns[index] = value.length > 0;
+    setShowViaDropdowns(newShowViaDropdowns);
   };
 
   const selectContactFromModal = (contact: Contact) => {
@@ -178,6 +286,18 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
       const newCcSearchTerms = [...ccSearchTerms];
       newCcSearchTerms[index] = contact.name;
       setCcSearchTerms(newCcSearchTerms);
+    } else if (
+      typeof contactModalTarget === "object" &&
+      contactModalTarget.type === "via"
+    ) {
+      const index = contactModalTarget.index;
+      const newVia = [...via];
+      newVia[index] = contact.desk_id_ref;
+      setVia(newVia);
+
+      const newViaSearchTerms = [...viaSearchTerms];
+      newViaSearchTerms[index] = contact.name;
+      setViaSearchTerms(newViaSearchTerms);
     }
     setShowContactModal(false);
   };
@@ -186,6 +306,12 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
     const newShowCcDropdowns = [...showCcDropdowns];
     newShowCcDropdowns[index] = visible;
     setShowCcDropdowns(newShowCcDropdowns);
+  };
+
+  const updateViaDropdownVisibility = (index: number, visible: boolean) => {
+    const newShowViaDropdowns = [...showViaDropdowns];
+    newShowViaDropdowns[index] = visible;
+    setShowViaDropdowns(newShowViaDropdowns);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -227,6 +353,21 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
       }
     }
 
+    // Validate via recipients
+    if (via && via.length > 0) {
+      const viaErrors: number[] = [];
+      via.forEach((viaRecipient, index) => {
+        if (viaRecipient && viaRecipient.length !== 10) {
+          viaErrors.push(index);
+        }
+      });
+      if (viaErrors.length > 0) {
+        setFieldErrors({ via: viaErrors });
+        setError("All via recipient IDs must be 10-digit numbers");
+        return;
+      }
+    }
+
     setIsSending(true);
     setError(null);
 
@@ -234,6 +375,7 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
       await onSend({
         to,
         cc: cc || undefined,
+        via: via || undefined,
         subject,
         body,
         font_family: desk.font_family,
@@ -242,11 +384,13 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
       // Reset form on success
       setTo("");
       setCc([]);
+      setVia([]);
       setSubject("");
       setBody("");
       setTemplateInitialized(false);
       setContactSearchTerm("");
       setCcSearchTerms([]);
+      setViaSearchTerms([]);
       setShowCcDropdowns([]);
     } catch (err) {
       console.error("Failed to send miv:", err);
@@ -358,6 +502,21 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
         return contact.name;
       }
       return formatPhoneId(cc[index]);
+    }
+    return "";
+  };
+
+  const getViaDisplay = (index: number) => {
+    if (viaSearchTerms[index]) {
+      return viaSearchTerms[index];
+    }
+    if (via[index]) {
+      // Check if this desk ID matches a contact
+      const contact = contacts.find((c) => c.desk_id_ref === via[index]);
+      if (contact) {
+        return contact.name;
+      }
+      return formatPhoneId(via[index]);
     }
     return "";
   };
@@ -546,6 +705,114 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
         </div>
 
         <div className="form-group">
+          <div className="cc-header">
+            <label>Via: (Optional - Routing)</label>
+            <button
+              type="button"
+              className="add-cc-btn"
+              onClick={addViaField}
+              title="Add via routing recipient"
+              disabled={isSending}
+            >
+              <i className="plus icon"></i>
+            </button>
+          </div>
+          {via.map((viaRecipient, index) => (
+            <div key={index} className="cc-field">
+              <div className="recipient-input-container">
+                <input
+                  type="text"
+                  className={
+                    fieldErrors.via && fieldErrors.via.includes(index)
+                      ? "error"
+                      : ""
+                  }
+                  value={getViaDisplay(index)}
+                  onChange={(e) => {
+                    updateViaSearchTerm(index, e.target.value);
+                    updateViaDropdownVisibility(index, true);
+                    // Clear field error when user starts typing
+                    if (fieldErrors.via && fieldErrors.via.includes(index)) {
+                      setFieldErrors((prev) => ({
+                        ...prev,
+                        via: prev.via
+                          ? prev.via.filter((i) => i !== index)
+                          : [],
+                      }));
+                    }
+                    // If typing a phone number, also set the 'via' field
+                    const digits = e.target.value.replace(/\D/g, "");
+                    if (digits) {
+                      updateViaField(index, digits.slice(0, 10));
+                    } else {
+                      updateViaField(index, "");
+                    }
+                  }}
+                  onFocus={() => updateViaDropdownVisibility(index, true)}
+                  onBlur={() =>
+                    setTimeout(
+                      () => updateViaDropdownVisibility(index, false),
+                      200
+                    )
+                  }
+                  placeholder="Search contacts or enter 5551-23-4567"
+                  disabled={isSending}
+                  autoComplete="off"
+                />
+                <button
+                  type="button"
+                  className="contact-select-btn"
+                  onClick={() => openContactModal({ type: "via", index })}
+                  title="Select contact"
+                  disabled={isSending}
+                >
+                  <i className="address book icon"></i>
+                </button>
+                <button
+                  type="button"
+                  className="remove-cc-btn"
+                  onClick={() => removeViaField(index)}
+                  title="Remove via routing recipient"
+                  disabled={isSending}
+                >
+                  <i className="minus icon"></i>
+                </button>
+                {showViaDropdowns[index] &&
+                  filteredViaContacts(index).length > 0 && (
+                    <div className="contact-dropdown">
+                      {filteredViaContacts(index)
+                        .slice(0, 5)
+                        .map((contact) => (
+                          <div
+                            key={contact.id}
+                            className="contact-dropdown-item"
+                            onClick={() => selectViaContact(contact, index)}
+                          >
+                            <div className="contact-dropdown-name">
+                              {contact.name}
+                            </div>
+                            <div className="contact-dropdown-id">
+                              {formatPhoneId(contact.desk_id_ref)}
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+              </div>
+              <span className="help-text">
+                {via[index] &&
+                  viaSearchTerms[index] &&
+                  `Via mivID: ${formatPhoneId(via[index])}`}
+                {via[index] &&
+                  !viaSearchTerms[index] &&
+                  `Via: ${formatPhoneId(via[index])}`}
+                {!via[index] && "Optional via routing intermediary"}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        <div className="form-group">
           <label htmlFor="subject">Subject:</label>
           <input
             id="subject"
@@ -568,6 +835,7 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
           <label htmlFor="body">Message:</label>
           <div className="editor-container">
             <CKEditor
+              key={resubmitMiv ? `resubmit-${resubmitMiv.id}` : "new"}
               editor={ClassicEditor as any}
               config={
                 {
@@ -698,6 +966,21 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
                         formatPhoneId(to)}
                     </span>
                   </div>
+                  {via.length > 0 && (
+                    <div className="preview-field">
+                      <span className="preview-field-label">Via:</span>
+                      <span className="preview-field-value">
+                        {via
+                          .map(
+                            (viaRecipient) =>
+                              contacts.find(
+                                (c) => c.desk_id_ref === viaRecipient
+                              )?.name || formatPhoneId(viaRecipient)
+                          )
+                          .join(" ← ")}
+                      </span>
+                    </div>
+                  )}
                   <div className="preview-field">
                     <span className="preview-field-label">From:</span>
                     <span className="preview-field-value">{desk.name}</span>
