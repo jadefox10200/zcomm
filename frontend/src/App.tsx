@@ -206,11 +206,16 @@ function App() {
           // Skip forgotten mivs
           if (miv.is_forgotten) continue;
 
-          // For archived conversations, only count ACKs in IN basket
+          // Skip deleted mivs (only affects ACKs)
+          if (miv.deleted) continue;
+
+          // For archived conversations, count messages in IN and PENDING baskets
           if (conv.conversation.is_archived) {
-            // Count ACKs in IN basket even if conversation is archived
-            if (miv.state === "IN" && miv.is_ack) {
+            // Count any messages in IN or PENDING basket even if conversation is archived
+            if (miv.state === "IN") {
               inboxCount++;
+            } else if (miv.state === "PENDING") {
+              pendingCount++;
             }
             // Count all mivs for archived total
             archivedCount++;
@@ -348,9 +353,9 @@ function App() {
     // Check if we're switching from one inbox miv to another
     const isPreviousMivInInbox =
       selectedMiv &&
-      selectedMiv.to === activeDesk?.id &&
-      !selectedMiv.read_at &&
-      selectedBasket === "IN";
+      selectedMiv.state === "IN" &&
+      selectedMiv.arrow_to === activeDesk?.id &&
+      !selectedMiv.read_at;
     const isClickingDifferentMiv = selectedMiv && selectedMiv.id !== miv.id;
 
     // If switching from one inbox miv to another, mark previous as read
@@ -389,12 +394,39 @@ function App() {
     setSelectedMiv(miv);
 
     // When clicking a miv in a basket, automatically mark it as read if it's incoming and unread
-    if (miv.to === activeDesk?.id && !miv.read_at) {
+    if (miv.state === "IN" && miv.arrow_to === activeDesk?.id && !miv.read_at) {
       try {
         await api.markMivAsRead(miv.id, activeDesk.id);
         // Update the selected miv with read status
-        const updatedMiv = { ...miv, read_at: new Date().toISOString() };
+        const updatedMiv = {
+          ...miv,
+          read_at: new Date().toISOString(),
+          state: "PENDING" as MivState,
+        };
         setSelectedMiv(updatedMiv);
+
+        // Show toast notification
+        const getSenderName = (deskId: string): string => {
+          const contact = contacts.find((c) => c.desk_id_ref === deskId);
+          if (contact) return contact.name;
+          // Format as phone number
+          if (deskId.length === 10) {
+            return `${deskId.slice(0, 4)}-${deskId.slice(4, 6)}-${deskId.slice(
+              6
+            )}`;
+          }
+          return deskId;
+        };
+
+        const senderName = getSenderName(miv.from);
+        setToastMessage(`Moved Miv from ${senderName} to Pending`);
+
+        // Refresh basket counts and list after a short delay to ensure backend is updated
+        setTimeout(async () => {
+          setBasketRefreshKey((prev) => prev + 1);
+          const response = await api.listConversations(activeDesk.id);
+          await calculateBasketCounts(response.conversations, activeDesk.id);
+        }, 100);
       } catch (err) {
         console.error("Failed to mark miv as read:", err);
       }
@@ -493,6 +525,7 @@ function App() {
         body: request.body,
         font_family: request.font_family,
         font_size: request.font_size,
+        line_height: request.line_height,
       };
 
       await api.createConversation(activeDesk.id, conversationRequest);

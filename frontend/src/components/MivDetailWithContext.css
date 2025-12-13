@@ -257,7 +257,6 @@
   word-wrap: break-word;
   font-family: inherit;
   font-size: 15px;
-  line-height: 1.6;
   color: #333;
   margin: 0;
 }
@@ -470,7 +469,6 @@
   padding: 40px 50px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
   font-family: "Georgia", "Times New Roman", serif;
-  line-height: 1.8;
   color: #2c2c2c;
   max-width: 900px;
   margin: 0 auto;
@@ -497,7 +495,6 @@
 
 .epistle-field {
   margin-bottom: 8px;
-  line-height: 1.6;
 }
 
 .epistle-field-label {
@@ -542,6 +539,11 @@
 
 .epistle-content {
   margin: 0;
+  line-height: var(--message-line-height, 1.65) !important;
+}
+
+.epistle-content * {
+  line-height: inherit !important;
 }
 
 /* Typography for epistle content */
@@ -614,7 +616,6 @@
 
 .epistle-content li {
   margin-bottom: 8px;
-  line-height: 1.8;
   font-size: inherit;
 }
 
@@ -829,7 +830,6 @@
   padding: 20px;
   overflow-y: auto;
   flex: 1;
-  line-height: 1.6;
 }
 
 .preview-actions {
@@ -917,7 +917,6 @@
 
 .epistle-body {
   padding: 20px;
-  line-height: 1.6;
 }
 
 .epistle-content {

@@ -5,6 +5,7 @@ import { CreateMivRequest, Contact, Desk, ConversationMiv } from "../types";
 import * as api from "../api/client";
 import { uploadPlugin } from "../utils/ckEditorUploadAdapter";
 import { buildMessageWithTemplate } from "../utils/messageTemplate";
+import MivPreview from "./MivPreview";
 import "./ComposeMiv.css";
 
 interface ComposeMivProps {
@@ -50,7 +51,21 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
     "to" | { type: "cc"; index: number } | { type: "via"; index: number }
   >("to");
   const [contactModalSearch, setContactModalSearch] = useState("");
+  const [showAddContactForm, setShowAddContactForm] = useState(false);
+  const [newContactForm, setNewContactForm] = useState({
+    name: "",
+    desk_id_ref: "",
+    first_name: "",
+    last_name: "",
+    greeting_name: "",
+    notes: "",
+  });
   const errorRef = useRef<HTMLDivElement>(null);
+
+  // Debug: Log when desk line_height changes
+  useEffect(() => {
+    console.log("ComposeMiv: desk.line_height updated to:", desk?.line_height);
+  }, [desk?.line_height]);
 
   // Scroll to error message when error occurs
   useEffect(() => {
@@ -302,6 +317,32 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
     setShowContactModal(false);
   };
 
+  const handleAddContact = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    try {
+      await api.createContact(deskId, newContactForm);
+
+      // Reload contacts
+      const response = await api.listContacts(deskId);
+      setContacts(response.contacts || []);
+
+      // Reset form and close
+      setNewContactForm({
+        name: "",
+        desk_id_ref: "",
+        first_name: "",
+        last_name: "",
+        greeting_name: "",
+        notes: "",
+      });
+      setShowAddContactForm(false);
+    } catch (err) {
+      console.error("Failed to add contact:", err);
+      alert("Failed to add contact. Please try again.");
+    }
+  };
+
   const updateCcDropdownVisibility = (index: number, visible: boolean) => {
     const newShowCcDropdowns = [...showCcDropdowns];
     newShowCcDropdowns[index] = visible;
@@ -372,7 +413,7 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
     setError(null);
 
     try {
-      await onSend({
+      const requestData = {
         to,
         cc: cc || undefined,
         via: via || undefined,
@@ -380,6 +421,14 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
         body,
         font_family: desk.font_family,
         font_size: desk.font_size,
+        line_height: desk.line_height,
+      };
+      console.log("DEBUG: Sending conversation request:", JSON.stringify(requestData));
+      await onSend(requestData);
+      console.log("DEBUG: After send - desk settings were:", {
+        font_family: desk.font_family,
+        font_size: desk.font_size,
+        line_height: desk.line_height
       });
       // Reset form on success
       setTo("");
@@ -833,7 +882,14 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
 
         <div className="form-group">
           <label htmlFor="body">Message:</label>
-          <div className="editor-container">
+          <div
+            className="editor-container"
+            style={
+              {
+                "--editor-line-height": desk?.line_height || "1.65",
+              } as React.CSSProperties
+            }
+          >
             <CKEditor
               key={resubmitMiv ? `resubmit-${resubmitMiv.id}` : "new"}
               editor={ClassicEditor as any}
@@ -945,105 +1001,19 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
       </form>
 
       {showPreview && (
-        <div className="preview-overlay" onClick={() => setShowPreview(false)}>
-          <div className="preview-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="preview-header">
-              <h3>Message Preview</h3>
-              <button
-                className="close-button"
-                onClick={() => setShowPreview(false)}
-              >
-                ×
-              </button>
-            </div>
-            <div className="preview-content">
-              <div className="preview-header-info">
-                <div className="preview-header-left">
-                  <div className="preview-field">
-                    <span className="preview-field-label">To:</span>
-                    <span className="preview-field-value">
-                      {contacts.find((c) => c.desk_id_ref === to)?.name ||
-                        formatPhoneId(to)}
-                    </span>
-                  </div>
-                  {via.length > 0 && (
-                    <div className="preview-field">
-                      <span className="preview-field-label">Via:</span>
-                      <span className="preview-field-value">
-                        {via
-                          .map(
-                            (viaRecipient) =>
-                              contacts.find(
-                                (c) => c.desk_id_ref === viaRecipient
-                              )?.name || formatPhoneId(viaRecipient)
-                          )
-                          .join(" ← ")}
-                      </span>
-                    </div>
-                  )}
-                  <div className="preview-field">
-                    <span className="preview-field-label">From:</span>
-                    <span className="preview-field-value">{desk.name}</span>
-                  </div>
-                </div>
-                <div className="preview-header-right">
-                  <div className="preview-field">
-                    <span className="preview-field-value">
-                      {new Date().toLocaleDateString("en-US", {
-                        year: "numeric",
-                        month: "short",
-                        day: "numeric",
-                      })}
-                    </span>
-                  </div>
-                  <div className="preview-field preview-sequence">
-                    <span className="preview-field-value">Message #1</span>
-                  </div>
-                  {cc.length > 0 && (
-                    <div className="preview-cc-list">
-                      {cc.map((ccRecipient, index) => (
-                        <div key={index} className="preview-cc-item">
-                          <span className="preview-cc-label">cc:</span>
-                          <span className="preview-cc-value">
-                            {contacts.find((c) => c.desk_id_ref === ccRecipient)
-                              ?.name || formatPhoneId(ccRecipient)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div
-                className="epistle-preview"
-                style={{
-                  fontFamily: desk?.font_family || "Georgia, serif",
-                  fontSize: desk?.font_size || "14px",
-                }}
-              >
-                <div className="preview-subject">
-                  <h2>{subject || "(No subject)"}</h2>
-                </div>
-                <div
-                  className={`preview-body ${
-                    desk?.auto_indent ? "auto-indent" : ""
-                  }`}
-                  dangerouslySetInnerHTML={{
-                    __html: body || "<p>(No message)</p>",
-                  }}
-                />
-              </div>
-            </div>
-            <div className="preview-actions">
-              <button
-                className="btn btn-secondary"
-                onClick={() => setShowPreview(false)}
-              >
-                Close Preview
-              </button>
-            </div>
-          </div>
-        </div>
+        <MivPreview
+          to={to}
+          via={via}
+          cc={cc}
+          from={desk.name}
+          subject={subject}
+          body={body}
+          sequenceNumber={1}
+          date={new Date()}
+          contacts={contacts}
+          desk={desk}
+          onClose={() => setShowPreview(false)}
+        />
       )}
 
       {/* Contact Selection Modal */}
@@ -1066,38 +1036,157 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
               </button>
             </div>
             <div className="modal-body">
-              <input
-                type="text"
-                placeholder="Search contacts..."
-                value={contactModalSearch}
-                onChange={(e) => setContactModalSearch(e.target.value)}
-                className="contact-search-input"
-                autoFocus
-              />
-              <div className="contact-list">
-                {contacts
-                  .filter(
-                    (contact) =>
-                      contact.name
-                        .toLowerCase()
-                        .includes(contactModalSearch.toLowerCase()) ||
-                      contact.id.toString().includes(contactModalSearch)
-                  )
-                  .map((contact) => (
-                    <div
-                      key={contact.id}
-                      className="contact-item"
-                      onClick={() => selectContactFromModal(contact)}
+              {!showAddContactForm ? (
+                <>
+                  <div className="modal-search-row">
+                    <input
+                      type="text"
+                      placeholder="Search contacts..."
+                      value={contactModalSearch}
+                      onChange={(e) => setContactModalSearch(e.target.value)}
+                      className="contact-search-input"
+                      autoFocus
+                    />
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => setShowAddContactForm(true)}
                     >
-                      <div className="contact-info">
-                        <div className="contact-name">{contact.name}</div>
-                        <div className="contact-id">
-                          mivID: {formatPhoneId(contact.desk_id_ref)}
+                      + Add Contact
+                    </button>
+                  </div>
+                  <div className="contact-list">
+                    {contacts
+                      .filter(
+                        (contact) =>
+                          contact.name
+                            .toLowerCase()
+                            .includes(contactModalSearch.toLowerCase()) ||
+                          contact.id.toString().includes(contactModalSearch)
+                      )
+                      .map((contact) => (
+                        <div
+                          key={contact.id}
+                          className="contact-item"
+                          onClick={() => selectContactFromModal(contact)}
+                        >
+                          <div className="contact-info">
+                            <div className="contact-name">{contact.name}</div>
+                            <div className="contact-id">
+                              mivID: {formatPhoneId(contact.desk_id_ref)}
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    </div>
-                  ))}
-              </div>
+                      ))}
+                  </div>
+                </>
+              ) : (
+                <form onSubmit={handleAddContact} className="add-contact-form">
+                  <div className="form-group">
+                    <label>Display Name *</label>
+                    <input
+                      type="text"
+                      value={newContactForm.name}
+                      onChange={(e) =>
+                        setNewContactForm({
+                          ...newContactForm,
+                          name: e.target.value,
+                        })
+                      }
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>mivID *</label>
+                    <input
+                      type="text"
+                      value={newContactForm.desk_id_ref}
+                      onChange={(e) =>
+                        setNewContactForm({
+                          ...newContactForm,
+                          desk_id_ref: e.target.value,
+                        })
+                      }
+                      placeholder="10 digit number"
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>First Name</label>
+                    <input
+                      type="text"
+                      value={newContactForm.first_name}
+                      onChange={(e) =>
+                        setNewContactForm({
+                          ...newContactForm,
+                          first_name: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Last Name</label>
+                    <input
+                      type="text"
+                      value={newContactForm.last_name}
+                      onChange={(e) =>
+                        setNewContactForm({
+                          ...newContactForm,
+                          last_name: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Greeting Name</label>
+                    <input
+                      type="text"
+                      value={newContactForm.greeting_name}
+                      onChange={(e) =>
+                        setNewContactForm({
+                          ...newContactForm,
+                          greeting_name: e.target.value,
+                        })
+                      }
+                      placeholder="For use in salutations"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Notes</label>
+                    <textarea
+                      value={newContactForm.notes}
+                      onChange={(e) =>
+                        setNewContactForm({
+                          ...newContactForm,
+                          notes: e.target.value,
+                        })
+                      }
+                      rows={3}
+                    />
+                  </div>
+                  <div className="form-actions">
+                    <button type="submit" className="btn btn-primary">
+                      Add Contact
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => {
+                        setShowAddContactForm(false);
+                        setNewContactForm({
+                          name: "",
+                          desk_id_ref: "",
+                          first_name: "",
+                          last_name: "",
+                          greeting_name: "",
+                          notes: "",
+                        });
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              )}
             </div>
           </div>
         </div>

@@ -42,8 +42,10 @@ type ConversationMiv struct {
 	IsEncrypted    bool       `json:"is_encrypted"`          // Whether the body is encrypted
 	IsAck          bool       `json:"is_ack"`                // Whether this is an ACK message
 	IsForgotten    bool       `json:"is_forgotten"`          // Whether this miv has been forgotten (stops tracking replies)
+	Deleted        bool       `json:"deleted"`               // Whether this miv has been deleted (hidden from all baskets)
 	FontFamily     *string    `json:"font_family,omitempty"` // Font family for message display
 	FontSize       *string    `json:"font_size,omitempty"`   // Font size for message display
+	LineHeight     *string    `json:"line_height,omitempty"` // Line height for message display
 	Via            []string   `json:"via,omitempty"`         // Via routing: array of intermediate desk IDs
 	ViaIndex       int        `json:"via_index"`             // Current position in via routing (0-based)
 	IsViaRejected  bool       `json:"is_via_rejected"`       // Whether via routing was rejected
@@ -61,6 +63,7 @@ type CreateConversationRequest struct {
 	Body       string    `json:"body" binding:"required"`
 	FontFamily *string   `json:"font_family,omitempty"` // Font family for message display
 	FontSize   *string   `json:"font_size,omitempty"`   // Font size for message display
+	LineHeight *string   `json:"line_height,omitempty"` // Line height for message display
 }
 
 // ReplyToConversationRequest represents a request to reply in a conversation
@@ -70,6 +73,7 @@ type ReplyToConversationRequest struct {
 	Cc         []string  `json:"cc,omitempty"`          // CC recipients (only for first reply in conversation)
 	FontFamily *string   `json:"font_family,omitempty"` // Font family for message display
 	FontSize   *string   `json:"font_size,omitempty"`   // Font size for message display
+	LineHeight *string   `json:"line_height,omitempty"` // Line height for message display
 }
 
 // ListConversationsResponse represents a list of conversations with metadata

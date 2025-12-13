@@ -392,6 +392,47 @@ func (s *MemoryStorage) ListConversationsByDesk(deskID string) ([]*models.Conver
 	return result, nil
 }
 
+// ListArchivedConversationsByDesk retrieves only archived conversations for a desk
+func (s *MemoryStorage) ListArchivedConversationsByDesk(deskID string) ([]*models.Conversation, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	conversationMap := make(map[string]*models.Conversation)
+
+	// Get conversations created by this desk
+	for _, conv := range s.conversations {
+		if conv.DeskID == deskID && conv.IsArchived {
+			conversationMap[conv.ID] = conv
+		}
+	}
+
+	// Get conversations where this desk is a participant
+	for convID, mivs := range s.conversationMivs {
+		for _, miv := range mivs {
+			normalizedMivTo := crypto.NormalizeDeskID(miv.ArrowTo)
+			normalizedDeskID := crypto.NormalizeDeskID(deskID)
+			
+			isRecipient := normalizedMivTo == normalizedDeskID
+			isSender := miv.From == deskID
+			
+			if isRecipient || isSender {
+				if conv, exists := s.conversations[convID]; exists && conv.IsArchived {
+					conversationMap[convID] = conv
+				}
+				break
+			}
+		}
+	}
+
+	// Convert map to slice
+	var result []*models.Conversation
+	for _, conv := range conversationMap {
+		result = append(result, conv)
+	}
+
+	return result, nil
+}
+
 // UpdateConversation updates a conversation
 func (s *MemoryStorage) UpdateConversation(conv *models.Conversation) error {
 	s.mu.Lock()

@@ -1,10 +1,12 @@
 package api
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -284,6 +286,7 @@ func (s *Server) createDesk(c *gin.Context) {
 		AutoIndent:        true,
 		FontFamily:        "Georgia, serif",
 		FontSize:          "14px",
+		LineHeight:        "1.65",
 		DefaultSalutation: "Dear [User],",
 		DefaultClosure:    "Sincerely,",
 	}
@@ -382,6 +385,9 @@ func (s *Server) updateDesk(c *gin.Context) {
 	if req.FontSize != nil {
 		desk.FontSize = *req.FontSize
 	}
+	if req.LineHeight != nil {
+		desk.LineHeight = *req.LineHeight
+	}
 	if req.DefaultSalutation != nil {
 		desk.DefaultSalutation = *req.DefaultSalutation
 	}
@@ -407,6 +413,65 @@ func (s *Server) listConversations(c *gin.Context) {
 	}
 
 	conversations, err := s.storage.ListConversationsByDesk(deskID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Build response with latest miv and unread count
+	var response []*models.ConversationWithLatest
+	for _, conv := range conversations {
+		mivs, err := s.storage.GetConversationMivs(conv.ID)
+		if err != nil {
+			continue
+		}
+
+		var latestMiv *models.ConversationMiv
+		unreadCount := 0
+		if len(mivs) > 0 {
+			latestMiv = mivs[len(mivs)-1]
+			normalizedDeskID := crypto.NormalizeDeskID(deskID)
+			for _, miv := range mivs {
+				normalizedMivTo := crypto.NormalizeDeskID(miv.ArrowTo)
+				isInCC := false
+				for _, cc := range miv.Cc {
+					if crypto.NormalizeDeskID(cc) == normalizedDeskID {
+						isInCC = true
+						break
+					}
+				}
+				if (normalizedMivTo == normalizedDeskID || isInCC) && miv.ReadAt == nil {
+					unreadCount++
+				}
+			}
+		}
+
+		response = append(response, &models.ConversationWithLatest{
+			Conversation: conv,
+			LatestMiv:    latestMiv,
+			UnreadCount:  unreadCount,
+		})
+	}
+
+	// Sort by updated_at descending
+	sort.Slice(response, func(i, j int) bool {
+		return response[i].Conversation.UpdatedAt.After(response[j].Conversation.UpdatedAt)
+	})
+
+	c.JSON(http.StatusOK, models.ListConversationsResponse{
+		Conversations: response,
+		Total:         len(response),
+	})
+}
+
+func (s *Server) listArchivedConversations(c *gin.Context) {
+	deskID := c.Query("desk_id")
+	if deskID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "desk_id is required"})
+		return
+	}
+
+	conversations, err := s.storage.ListArchivedConversationsByDesk(deskID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -530,6 +595,12 @@ func (s *Server) getConversation(c *gin.Context) {
 }
 
 func (s *Server) createConversation(c *gin.Context) {
+	// Read raw body for debugging
+	bodyBytes, _ := io.ReadAll(c.Request.Body)
+	log.Printf("DEBUG: Raw JSON body: %s", string(bodyBytes))
+	// Restore body for binding
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+	
 	var req models.CreateConversationRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -541,6 +612,24 @@ func (s *Server) createConversation(c *gin.Context) {
 	if deskID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "desk_id is required"})
 		return
+	}
+
+	// Debug logging - log the actual values
+	log.Printf("DEBUG createConversation request values:")
+	if req.FontFamily != nil {
+		log.Printf("  FontFamily: %s", *req.FontFamily)
+	} else {
+		log.Printf("  FontFamily: nil")
+	}
+	if req.FontSize != nil {
+		log.Printf("  FontSize: %s", *req.FontSize)
+	} else {
+		log.Printf("  FontSize: nil")
+	}
+	if req.LineHeight != nil {
+		log.Printf("  LineHeight: %s", *req.LineHeight)
+	} else {
+		log.Printf("  LineHeight: nil")
 	}
 
 	// Validate that recipient desk exists
@@ -612,6 +701,7 @@ func (s *Server) createConversation(c *gin.Context) {
 		IsEncrypted:    false,
 		FontFamily:     req.FontFamily,
 		FontSize:       req.FontSize,
+		LineHeight:     req.LineHeight,
 		Via:            req.Via,   // Via routing array
 		ViaIndex:       0,         // Start at first via recipient
 		IsViaRejected:  false,
@@ -622,13 +712,50 @@ func (s *Server) createConversation(c *gin.Context) {
 		return
 	}
 
-	// Create notification for recipient (actual current recipient)
+	// Create conversation for the actual current recipient so they can see the message
 	normalizedRecipient := crypto.NormalizeDeskID(actualRecipient)
+	recipientConv := &models.Conversation{
+		Subject: req.Subject,
+		DeskID:  normalizedRecipient, // Recipient owns their copy of the conversation
+	}
+
+	if err := s.storage.CreateConversation(recipientConv); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create recipient conversation"})
+		return
+	}
+
+	// Create the recipient's copy of the miv in their conversation
+	recipientMiv := &models.ConversationMiv{
+		ConversationID: recipientConv.ID, // Recipient's conversation
+		SeqNo:          1,
+		From:           deskID,
+		To:             req.To,
+		Cc:             req.Cc,
+		ArrowTo:        normalizedRecipient,
+		Type:           models.MivTypeMiv,
+		Subject:        req.Subject,
+		Body:           base64.StdEncoding.EncodeToString([]byte(req.Body)),
+		State:          models.StateIN, // IN state for recipient
+		IsEncrypted:    false,
+		FontFamily:     req.FontFamily,
+		FontSize:       req.FontSize,
+		LineHeight:     req.LineHeight,
+		Via:            req.Via,
+		ViaIndex:       0,
+		IsViaRejected:  false,
+	}
+
+	if err := s.storage.CreateConversationMiv(recipientMiv); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create recipient miv"})
+		return
+	}
+
+	// Create notification for recipient (actual current recipient)
 	notification := &models.Notification{
 		DeskID:         normalizedRecipient, // Use normalized ID for routing
 		Type:           models.NotificationTypeNewMiv,
-		MivID:          miv.ID,
-		ConversationID: conv.ID,
+		MivID:          recipientMiv.ID,
+		ConversationID: recipientConv.ID, // Use recipient's conversation
 		Message:        fmt.Sprintf("New message from %s: %s", deskID, req.Subject),
 		Read:           false,
 	}
@@ -665,6 +792,7 @@ func (s *Server) createConversation(c *gin.Context) {
 				IsEncrypted:    false,
 				FontFamily:     req.FontFamily,
 				FontSize:       req.FontSize,
+				LineHeight:     req.LineHeight,
 				Via:            req.Via,   // Include via routing for display
 				ViaIndex:       0,         // Via routing info for display only (CC doesn't participate in routing)
 				IsViaRejected:  false,
@@ -805,8 +933,12 @@ func (s *Server) replyToConversation(c *gin.Context) {
 		actualRecipient = viaRecipients[0]
 	}
 
+	// Calculate next sequence number for sender's conversation
+	nextSeqNo := len(mivs) + 1
+
 	miv := &models.ConversationMiv{
 		ConversationID: conversationID,
+		SeqNo:          nextSeqNo, // Set explicit sequence number
 		From:           deskID,
 		To:             recipientID,
 		Via:            viaRecipients, // Reversed via routing for reply
@@ -821,11 +953,66 @@ func (s *Server) replyToConversation(c *gin.Context) {
 		IsAck:          req.IsAck,
 		FontFamily:     req.FontFamily,
 		FontSize:       req.FontSize,
+		LineHeight:     req.LineHeight,
 	}
 
 	if err := s.storage.CreateConversationMiv(miv); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create reply"})
 		return
+	}
+
+	// CRITICAL: Create a copy of the reply in the recipient's conversation
+	// Find the recipient's conversation with the same subject
+	recipientConvs, err := s.storage.ListConversationsByDesk(recipientID)
+	if err != nil {
+		log.Printf("ERROR: Failed to get recipient conversations: %v", err)
+	} else {
+		var recipientConv *models.Conversation
+		for _, rc := range recipientConvs {
+			if rc.Subject == conv.Subject && rc.DeskID == recipientID {
+				recipientConv = rc
+				break
+			}
+		}
+
+		if recipientConv != nil {
+			// Get the next sequence number for recipient's conversation
+			recipientMivs, err := s.storage.GetConversationMivs(recipientConv.ID)
+			if err != nil {
+				log.Printf("ERROR: Failed to get recipient mivs: %v", err)
+			} else {
+				nextSeqNo := len(recipientMivs) + 1
+
+				// Create the reply miv in recipient's conversation
+				recipientReplyMiv := &models.ConversationMiv{
+					ConversationID: recipientConv.ID, // Recipient's conversation
+					SeqNo:          nextSeqNo,
+					From:           deskID,
+					To:             recipientID,
+					Via:            viaRecipients,
+					ViaIndex:       0,
+					Cc:             ccRecipients,
+					ArrowTo:        recipientID, // Arrow points to recipient
+					Type:           models.MivTypeMiv,
+					Subject:        conv.Subject,
+					Body:           base64.StdEncoding.EncodeToString([]byte(req.Body)),
+					State:          models.StateIN, // IN state for recipient
+					IsEncrypted:    false,
+					IsAck:          req.IsAck,
+					FontFamily:     req.FontFamily,
+					FontSize:       req.FontSize,
+					LineHeight:     req.LineHeight,
+				}
+
+				if err := s.storage.CreateConversationMiv(recipientReplyMiv); err != nil {
+					log.Printf("ERROR: Failed to create recipient reply miv: %v", err)
+				} else {
+					log.Printf("DEBUG: Created reply miv in recipient's conversation %s (seq %d)", recipientConv.ID, nextSeqNo)
+				}
+			}
+		} else {
+			log.Printf("ERROR: Could not find recipient conversation for %s with subject %s", recipientID, conv.Subject)
+		}
 	}
 
 	// Create notification for the actual recipient (via or final)
@@ -894,6 +1081,7 @@ func (s *Server) replyToConversation(c *gin.Context) {
 				IsAck:          req.IsAck,
 				FontFamily:     req.FontFamily,
 				FontSize:       req.FontSize,
+				LineHeight:     req.LineHeight,
 				Via:            viaRecipients, // Include via routing for display
 				ViaIndex:       0,             // Via routing info for display only
 				IsViaRejected:  false,
@@ -931,8 +1119,22 @@ func (s *Server) replyToConversation(c *gin.Context) {
 
 	// If this is an ACK, archive the conversation for everyone
 	if req.IsAck {
+		// Archive sender's conversation
 		conv.IsArchived = true
 		s.storage.UpdateConversation(conv)
+		
+		// Archive recipient's conversation
+		recipientConvs, err := s.storage.ListConversationsByDesk(recipientID)
+		if err == nil {
+			for _, rc := range recipientConvs {
+				if rc.Subject == conv.Subject && rc.DeskID == recipientID {
+					rc.IsArchived = true
+					s.storage.UpdateConversation(rc)
+					log.Printf("DEBUG: Archived recipient conversation %s for desk %s", rc.ID, recipientID)
+					break
+				}
+			}
+		}
 		
 		// Also archive CC conversations if this is an ACK
 		for _, ccRecipient := range ccRecipients {
@@ -1012,6 +1214,36 @@ func (s *Server) archiveConversation(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Conversation archived successfully", "conversation": conv})
+}
+
+func (s *Server) deleteConversation(c *gin.Context) {
+	conversationID := c.Param("id")
+	deskID := c.Query("desk_id")
+	if deskID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "desk_id is required"})
+		return
+	}
+
+	// Get conversation
+	conv, err := s.storage.GetConversation(conversationID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Conversation not found"})
+		return
+	}
+
+	// Verify the conversation belongs to the requesting desk
+	if conv.DeskID != deskID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Not authorized to delete this conversation"})
+		return
+	}
+
+	// Mark all mivs in this conversation as deleted for this desk
+	if err := s.storage.DeleteConversationMivs(conversationID, deskID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete conversation"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Conversation deleted successfully"})
 }
 
 // CC handlers
@@ -1754,6 +1986,7 @@ func (s *Server) rejectViaRouting(c *gin.Context) {
 		IsAck:          true,             // Mark as ACK-like so it doesn't show in rejector's OUT basket
 		FontFamily:     miv.FontFamily,
 		FontSize:       miv.FontSize,
+		LineHeight:     miv.LineHeight,
 		Via:            []string{},       // No via routing on the rejection
 		ViaIndex:       0,
 		IsViaRejected:  false,
@@ -1847,6 +2080,7 @@ func (s *Server) rejectViaRouting(c *gin.Context) {
 					IsAck:          false, // CC recipients see it as a regular message
 					FontFamily:     miv.FontFamily,
 					FontSize:       miv.FontSize,
+					LineHeight:     miv.LineHeight,
 					Via:            miv.Via,
 					ViaIndex:       miv.ViaIndex,
 					IsViaRejected:  false,

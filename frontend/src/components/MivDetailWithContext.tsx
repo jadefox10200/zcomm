@@ -10,6 +10,7 @@ import {
 import * as api from "../api/client";
 import { uploadPlugin } from "../utils/ckEditorUploadAdapter";
 import { parseClosureAndSignature } from "../utils/messageTemplate";
+import MivPreview from "./MivPreview";
 import "./MivDetailWithContext.css";
 
 interface MivDetailWithContextProps {
@@ -192,8 +193,10 @@ function MivDetailWithContext({
       is_encrypted: false,
       is_ack: false,
       is_forgotten: false,
+      deleted: false,
       font_family: currentDesk?.font_family,
       font_size: currentDesk?.font_size,
+      line_height: currentDesk?.line_height,
       via_index: 0,
       is_via_rejected: false,
     };
@@ -252,8 +255,10 @@ function MivDetailWithContext({
       is_encrypted: false,
       is_ack: true,
       is_forgotten: false,
+      deleted: false,
       font_family: currentDesk?.font_family,
       font_size: currentDesk?.font_size,
+      line_height: currentDesk?.line_height,
       via_index: 0,
       is_via_rejected: false,
     };
@@ -307,13 +312,8 @@ function MivDetailWithContext({
     try {
       await api.approveViaRouting(selectedMiv.id, currentDeskId);
 
-      // Reload conversation to show updated state
-      const updatedConv = await api.getConversation(
-        selectedMiv.conversation_id
-      );
-      setConversation(updatedConv);
-
-      // Navigate back or to IN basket to see updated state
+      // Navigate back to basket view immediately - handleBackToBasket will refresh conversations
+      // The miv should now be filtered out because arrow_to has been updated
       onBack?.();
     } catch (err) {
       console.error("Failed to approve via routing:", err);
@@ -334,16 +334,11 @@ function MivDetailWithContext({
         viaRejectReason
       );
 
-      // Reload conversation to show updated state
-      const updatedConv = await api.getConversation(
-        selectedMiv.conversation_id
-      );
-      setConversation(updatedConv);
-
       setShowViaReject(false);
       setViaRejectReason("");
 
-      // Navigate back or to IN basket to see updated state
+      // Navigate back to basket view immediately - handleBackToBasket will refresh conversations
+      // The rejected miv should now be filtered out
       onBack?.();
     } catch (err) {
       console.error("Failed to reject via routing:", err);
@@ -368,16 +363,15 @@ function MivDetailWithContext({
 
   const handleDelete = async () => {
     try {
-      await api.archiveConversation(selectedMiv.conversation_id);
+      await api.deleteConversation(selectedMiv.conversation_id, currentDeskId);
       setShowDeleteConfirm(false);
       // Call the callback to refresh the parent view
       if (onForget) {
         onForget();
       }
-      alert("Conversation archived successfully.");
     } catch (err) {
-      console.error("Failed to archive conversation:", err);
-      alert("Failed to archive conversation. Please try again.");
+      console.error("Failed to delete conversation:", err);
+      alert("Failed to delete conversation. Please try again.");
     }
   };
 
@@ -700,10 +694,13 @@ function MivDetailWithContext({
                 className={`epistle-content ${
                   currentDesk?.auto_indent ? "auto-indent" : ""
                 }`}
-                style={{
-                  fontFamily: selectedMiv.font_family || "Georgia, serif",
-                  fontSize: selectedMiv.font_size || "14px",
-                }}
+                style={
+                  {
+                    fontFamily: selectedMiv.font_family || "Georgia, serif",
+                    fontSize: selectedMiv.font_size || "14px",
+                    "--message-line-height": selectedMiv.line_height || "1.65",
+                  } as React.CSSProperties
+                }
                 dangerouslySetInnerHTML={{ __html: atob(selectedMiv.body) }}
               />
             </div>
@@ -824,12 +821,6 @@ function MivDetailWithContext({
                   Forget
                 </button>
               )}
-
-            {selectedMiv.is_forgotten && (
-              <span className="forgotten-label">
-                This message has been forgotten
-              </span>
-            )}
           </div>
 
           {showForgetConfirm && (
@@ -1057,41 +1048,19 @@ function MivDetailWithContext({
           )}
 
           {showPreview && (
-            <div
-              className="preview-modal-overlay"
-              onClick={() => setShowPreview(false)}
-            >
-              <div
-                className="preview-modal"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="preview-header">
-                  <h3>Reply Preview</h3>
-                  <button
-                    className="close-button"
-                    onClick={() => setShowPreview(false)}
-                  >
-                    ×
-                  </button>
-                </div>
-                <div
-                  className="preview-content"
-                  style={{
-                    fontFamily: currentDesk?.font_family || "Georgia, serif",
-                    fontSize: currentDesk?.font_size || "14px",
-                  }}
-                  dangerouslySetInnerHTML={{ __html: replyBody }}
-                />
-                <div className="preview-actions">
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => setShowPreview(false)}
-                  >
-                    Close Preview
-                  </button>
-                </div>
-              </div>
-            </div>
+            <MivPreview
+              to={selectedMiv.to}
+              via={selectedMiv.via}
+              cc={selectedMiv.cc}
+              from={currentDesk.name}
+              subject={conversation?.conversation.subject || ""}
+              body={replyBody}
+              sequenceNumber={(conversation?.mivs.length || 0) + 1}
+              date={new Date()}
+              contacts={contacts}
+              desk={currentDesk}
+              onClose={() => setShowPreview(false)}
+            />
           )}
         </div>
       </div>

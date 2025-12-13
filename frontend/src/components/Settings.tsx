@@ -21,6 +21,7 @@ const Settings: React.FC<SettingsProps> = ({
     desk.font_family || "Georgia, serif"
   );
   const [fontSize, setFontSize] = useState(desk.font_size || "14px");
+  const [lineHeight, setLineHeight] = useState(desk.line_height || "1.65");
   const [defaultSalutation, setDefaultSalutation] = useState(
     desk.default_salutation || "Dear [User],"
   );
@@ -53,6 +54,7 @@ const Settings: React.FC<SettingsProps> = ({
         auto_indent: autoIndent,
         font_family: fontFamily,
         font_size: fontSize,
+        line_height: lineHeight,
         default_salutation: defaultSalutation,
         default_closure: combinedClosure,
       };
@@ -163,6 +165,27 @@ const Settings: React.FC<SettingsProps> = ({
                 <option value="16px">16px (Large)</option>
                 <option value="18px">18px (Extra Large)</option>
               </select>
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="lineHeight">Line Height</label>
+              <select
+                id="lineHeight"
+                value={lineHeight}
+                onChange={(e) => setLineHeight(e.target.value)}
+                disabled={isSaving}
+              >
+                <option value="1.0">1.0 (Tight)</option>
+                <option value="1.15">1.15 (Compact)</option>
+                <option value="1.25">1.25 (Cozy)</option>
+                <option value="1.5">1.5 (Normal)</option>
+                <option value="1.65">1.65 (Comfortable)</option>
+                <option value="1.75">1.75 (Relaxed)</option>
+                <option value="2.0">2.0 (Loose)</option>
+              </select>
+              <p className="help-text">
+                Controls the spacing between lines of text in your messages
+              </p>
             </div>
           </div>
 

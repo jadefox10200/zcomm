@@ -11,6 +11,7 @@ import {
 import * as api from "../api/client";
 import { uploadPlugin } from "../utils/ckEditorUploadAdapter";
 import { buildMessageWithTemplate } from "../utils/messageTemplate";
+import MivPreview from "./MivPreview";
 import "./ConversationThread.css";
 
 interface ConversationThreadProps {
@@ -152,6 +153,23 @@ function ConversationThread({
     });
   };
 
+  const formatPhoneId = (value: string) => {
+    // Remove non-digits
+    const digits = value.replace(/\D/g, "");
+
+    // Format as XXXX-XX-XXXX
+    if (digits.length <= 4) {
+      return digits;
+    } else if (digits.length <= 6) {
+      return `${digits.slice(0, 4)}-${digits.slice(4)}`;
+    } else {
+      return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(
+        6,
+        10
+      )}`;
+    }
+  };
+
   const formatDeskId = (id: string) => {
     if (id.length === 10) {
       return `${id.slice(0, 4)}-${id.slice(4, 6)}-${id.slice(6)}`;
@@ -178,8 +196,28 @@ function ConversationThread({
     );
   }
 
-  const handleMivClick = (miv: ConversationMiv) => {
+  const handleMivClick = async (miv: ConversationMiv) => {
     setSelectedMiv(miv);
+
+    // Mark as read if it's an incoming message (IN or CC state) and hasn't been read yet
+    const isViaRecipient =
+      miv.via &&
+      miv.via.length > 0 &&
+      miv.via_index < miv.via.length &&
+      miv.via[miv.via_index] === currentDeskId;
+
+    if (
+      (miv.state === "IN" || miv.state === "CC") &&
+      !miv.read_at &&
+      !isViaRecipient
+    ) {
+      try {
+        await api.markMivAsRead(miv.id, currentDeskId);
+        // Note: Parent component should refresh to see basket changes
+      } catch (err) {
+        console.error("Failed to mark message as read:", err);
+      }
+    }
   };
 
   return (
@@ -504,48 +542,24 @@ function ConversationThread({
       </div>
 
       {showPreview && (
-        <div className="preview-overlay" onClick={() => setShowPreview(false)}>
-          <div className="preview-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="preview-header">
-              <h3>Reply Preview</h3>
-              <button
-                className="close-button"
-                onClick={() => setShowPreview(false)}
-              >
-                ×
-              </button>
-            </div>
-            <div className="preview-content">
-              <div
-                className="epistle-preview"
-                style={{
-                  fontFamily: desk?.font_family || "Georgia, serif",
-                  fontSize: desk?.font_size || "14px",
-                }}
-              >
-                <div className="preview-subject">
-                  <h2>{conversation.conversation.subject}</h2>
-                </div>
-                <div
-                  className={`preview-body ${
-                    desk?.auto_indent ? "auto-indent" : ""
-                  }`}
-                  dangerouslySetInnerHTML={{
-                    __html: replyBody || "<p>(No message)</p>",
-                  }}
-                />
-              </div>
-            </div>
-            <div className="preview-actions">
-              <button
-                className="btn btn-secondary"
-                onClick={() => setShowPreview(false)}
-              >
-                Close Preview
-              </button>
-            </div>
-          </div>
-        </div>
+        <MivPreview
+          to={(() => {
+            const latestMiv = conversation.mivs[conversation.mivs.length - 1];
+            return latestMiv.from === currentDeskId
+              ? latestMiv.to
+              : latestMiv.from;
+          })()}
+          via={conversation.mivs[conversation.mivs.length - 1]?.via}
+          cc={conversation.mivs[conversation.mivs.length - 1]?.cc}
+          from={desk.name}
+          subject={conversation.conversation.subject}
+          body={replyBody}
+          sequenceNumber={conversation.mivs.length + 1}
+          date={new Date()}
+          contacts={contacts}
+          desk={desk}
+          onClose={() => setShowPreview(false)}
+        />
       )}
     </div>
   );

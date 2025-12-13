@@ -221,7 +221,7 @@
 
 .error-message {
   background-color: #ffebee;
-  color: #C62828;
+  color: #c62828;
   padding: 12px;
   border-radius: 4px;
   margin-bottom: 20px;
@@ -230,8 +230,8 @@
 
 input.error,
 .recipient-input-container input.error {
-  border-color: #C62828 !important;
-  box-shadow: 0 0 0 1px #C62828 !important;
+  border-color: #c62828 !important;
+  box-shadow: 0 0 0 1px #c62828 !important;
 }
 
 /* Preview header styles */
@@ -346,7 +346,7 @@ input.error,
 }
 
 .btn-preview:hover:not(:disabled) {
-  background-color: #C62828;
+  background-color: #c62828;
 }
 
 /* CKEditor container styling */
@@ -359,6 +359,19 @@ input.error,
 .editor-container .ck-editor__editable {
   min-height: 300px;
   max-height: 500px;
+  line-height: var(--editor-line-height, 1.65) !important;
+}
+
+/* Remove default paragraph spacing in CKEditor */
+.editor-container .ck-editor__editable p {
+  margin: 0;
+  padding: 0;
+  line-height: var(--editor-line-height, 1.65) !important;
+}
+
+/* Apply line-height to all text content in editor */
+.editor-container .ck-editor__editable * {
+  line-height: inherit !important;
 }
 
 /* Preview Modal */
@@ -548,8 +561,68 @@ input.error,
   border: 1px solid #ddd;
   border-radius: 4px;
   font-size: 14px;
-  margin-bottom: 16px;
   box-sizing: border-box;
+}
+
+.modal-search-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.modal-search-row .contact-search-input {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.modal-search-row .btn {
+  white-space: nowrap;
+}
+
+.add-contact-form {
+  max-height: 400px;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+.add-contact-form .form-group {
+  margin-bottom: 16px;
+}
+
+.add-contact-form .form-group label {
+  display: block;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.add-contact-form .form-group input,
+.add-contact-form .form-group textarea {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+
+.add-contact-form .form-group textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+.add-contact-form .form-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #e0e0e0;
+}
+
+.add-contact-form .form-actions .btn {
+  flex: 1;
 }
 
 .contact-list {

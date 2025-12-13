@@ -60,21 +60,18 @@ function BasketView({
         const contactsResponse = await api.listContacts(deskId);
         setContacts(contactsResponse.contacts || []);
 
-        // Get all conversations and extract mivs matching the selected basket state
-        const response = await api.listConversations(deskId);
-        const allMivs: ConversationMiv[] = [];
-
-        // Handle case where conversations might be null or undefined
-        const conversations = response?.conversations || [];
-
-        // Handle ARCHIVED view separately - show conversations instead of mivs
+        // Handle ARCHIVED view separately - use dedicated API endpoint
         if (selectedBasket === "ARCHIVED") {
-          const archived = conversations.filter(
-            (conv) => conv.conversation.is_archived
-          );
+          const archivedResponse = await api.listArchivedConversations(deskId);
+          const archived = archivedResponse?.conversations || [];
           setArchivedConversations(archived);
           setMivs([]);
         } else {
+          // For regular baskets, get active conversations only
+          const response = await api.listConversations(deskId);
+          const allMivs: ConversationMiv[] = [];
+          const conversations = response?.conversations || [];
+
           setArchivedConversations([]);
 
           for (const conv of conversations) {
@@ -89,18 +86,11 @@ function BasketView({
               // Filter based on miv state from backend
               if (miv.state !== selectedBasket) return false;
 
+              // Exclude deleted mivs from basket views (only affects ACKs)
+              if (miv.deleted) return false;
+
               // Exclude forgotten mivs
               if (miv.is_forgotten) return false;
-
-              // For archived conversations, only show ACKs in IN basket
-              // (Allow recipients to see ACKs they've received even though conversation is archived)
-              if (conv.conversation.is_archived) {
-                // Only show ACKs in IN basket from archived conversations
-                if (selectedBasket === "IN" && miv.is_ack) {
-                  return true;
-                }
-                return false;
-              }
 
               // Exclude ACK mivs from SENT basket (they don't expect replies)
               if (selectedBasket === "SENT" && miv.is_ack) return false;

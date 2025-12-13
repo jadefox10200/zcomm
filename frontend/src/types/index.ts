@@ -39,6 +39,7 @@ export interface CreateMivRequest {
   body: string;
   font_family?: string;
   font_size?: string;
+  line_height?: string;
 }
 
 export interface UpdateStateRequest {
@@ -66,6 +67,7 @@ export interface Desk {
   auto_indent: boolean;
   font_family: string;
   font_size: string;
+  line_height: string;
   default_salutation: string;
   default_closure: string;
 }
@@ -102,6 +104,7 @@ export interface UpdateDeskRequest {
   auto_indent?: boolean;
   font_family?: string;
   font_size?: string;
+  line_height?: string;
   default_salutation?: string;
   default_closure?: string;
 }
@@ -145,8 +148,10 @@ export interface ConversationMiv {
   is_encrypted: boolean;
   is_ack: boolean;
   is_forgotten: boolean;
+  deleted: boolean;
   font_family?: string;
   font_size?: string;
+  line_height?: string;
   via?: string[];
   via_index: number;
   is_via_rejected: boolean;
@@ -163,6 +168,7 @@ export interface CreateConversationRequest {
   body: string;
   font_family?: string;
   font_size?: string;
+  line_height?: string;
 }
 
 export interface ReplyToConversationRequest {
@@ -171,6 +177,7 @@ export interface ReplyToConversationRequest {
   cc?: string[];
   font_family?: string;
   font_size?: string;
+  line_height?: string;
 }
 
 export interface ConversationWithLatest {

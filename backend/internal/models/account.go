@@ -31,6 +31,7 @@ type Desk struct {
 	AutoIndent        bool   `json:"auto_indent"`        // Enable auto-indent for epistle-style rendering
 	FontFamily        string `json:"font_family"`        // Default font family
 	FontSize          string `json:"font_size"`          // Default font size
+	LineHeight        string `json:"line_height"`        // Line height for text
 	DefaultSalutation string `json:"default_salutation"` // Default salutation (e.g., "Dear [User]")
 	DefaultClosure    string `json:"default_closure"`    // Default closure/signature
 }
@@ -84,6 +85,7 @@ type UpdateDeskRequest struct {
 	AutoIndent        *bool   `json:"auto_indent"`
 	FontFamily        *string `json:"font_family"`
 	FontSize          *string `json:"font_size"`
+	LineHeight        *string `json:"line_height"`
 	DefaultSalutation *string `json:"default_salutation"`
 	DefaultClosure    *string `json:"default_closure"`
 }

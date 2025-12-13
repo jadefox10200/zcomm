@@ -11,17 +11,80 @@ import (
 	"github.com/jadefox10200/missiv/backend/internal/storage"
 )
 
+// StorageBackend is an interface for storage implementations
+type StorageBackend interface {
+	// Legacy Identity methods
+	SetIdentity(identity *models.Identity)
+	GetIdentity() (*models.Identity, error)
+
+	// Legacy Miv methods
+	CreateMiv(miv *models.Miv) error
+	GetMiv(id string) (*models.Miv, error)
+	ListMivs(state models.MivState) ([]*models.Miv, error)
+	UpdateMivState(id string, state models.MivState) error
+	DeleteMiv(id string) error
+
+	// Account methods
+	CreateAccount(account *models.Account) error
+	GetAccountByID(id string) (*models.Account, error)
+	GetAccountByUsername(username string) (*models.Account, error)
+	UpdateAccount(account *models.Account) error
+
+	// Desk methods
+	CreateDesk(desk *models.Desk, privateKey [32]byte) error
+	GetDesk(id string) (*models.Desk, error)
+	GetDeskPrivateKey(id string) ([32]byte, error)
+	ListDesksByAccount(accountID string) ([]*models.Desk, error)
+	UpdateDesk(desk *models.Desk) error
+
+	// Conversation methods
+	CreateConversation(conv *models.Conversation) error
+	GetConversation(id string) (*models.Conversation, error)
+	ListConversationsByDesk(deskID string) ([]*models.Conversation, error)
+	ListArchivedConversationsByDesk(deskID string) ([]*models.Conversation, error)
+	UpdateConversation(conv *models.Conversation) error
+
+	// ConversationMiv methods
+	CreateConversationMiv(miv *models.ConversationMiv) error
+	GetConversationMiv(mivID string) (*models.ConversationMiv, error)
+	GetConversationMivs(conversationID string) ([]*models.ConversationMiv, error)
+	UpdateConversationMiv(miv *models.ConversationMiv) error
+	MarkConversationMivAsRead(mivID string, deskID string) error
+	MarkConversationMivsAsRead(conversationID string, deskID string) error
+	DeleteConversationMivs(conversationID string, deskID string) error
+
+	// Contact methods
+	CreateContact(contact *models.Contact) error
+	GetContact(id string) (*models.Contact, error)
+	ListContactsForDesk(deskID string) ([]*models.Contact, error)
+	UpdateContact(contact *models.Contact) error
+	DeleteContact(id string) error
+	GetContactByDeskIDRef(deskID, deskIDRef string) (*models.Contact, error)
+
+	// Notification methods
+	CreateNotification(notif *models.Notification) error
+	GetNotification(id string) (*models.Notification, error)
+	ListNotificationsByDesk(deskID string, unreadOnly bool) ([]*models.Notification, error)
+	MarkNotificationAsRead(id string) error
+}
+
 // Server represents the API server
 type Server struct {
-	storage *storage.MemoryStorage
+	storage StorageBackend
 	router  *gin.Engine
 	keyPair *crypto.KeyPair
 }
 
-// NewServer creates a new API server
+// NewServer creates a new API server with SQLite storage
 func NewServer() *Server {
+	// Use SQLite storage for persistent data
+	sqliteStorage, err := storage.NewSQLiteStorage("./zcomm.db")
+	if err != nil {
+		panic("Failed to initialize SQLite storage: " + err.Error())
+	}
+	
 	s := &Server{
-		storage: storage.NewMemoryStorage(),
+		storage: sqliteStorage,
 		router:  gin.Default(),
 	}
 
@@ -34,6 +97,17 @@ func NewServer() *Server {
 		println("Warning: Failed to load test users:", err.Error())
 	}
 	
+	return s
+}
+
+// NewServerWithStorage creates a new API server with a custom storage backend (for testing)
+func NewServerWithStorage(storageBackend StorageBackend) *Server {
+	s := &Server{
+		storage: storageBackend,
+		router:  gin.Default(),
+	}
+
+	s.setupRoutes()
 	return s
 }
 
@@ -68,10 +142,12 @@ func (s *Server) setupRoutes() {
 
 		// Conversation endpoints
 		api.GET("/conversations", s.listConversations)
+		api.GET("/conversations/archived", s.listArchivedConversations)
 		api.GET("/conversations/:id", s.getConversation)
 		api.POST("/conversations", s.createConversation)
 		api.POST("/conversations/:id/reply", s.replyToConversation)
 		api.POST("/conversations/:id/archive", s.archiveConversation)
+		api.DELETE("/conversations/:id", s.deleteConversation)
 		api.POST("/conversations/:id/cc/answer", s.answerCcMiv)
 		api.POST("/conversations/:id/cc/delete", s.deleteCcMiv)
 

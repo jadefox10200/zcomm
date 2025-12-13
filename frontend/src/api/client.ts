@@ -253,6 +253,18 @@ export const listConversations = async (
   return response.json();
 };
 
+export const listArchivedConversations = async (
+  deskId: string
+): Promise<ListConversationsResponse> => {
+  const response = await fetch(
+    `${API_BASE_URL}/conversations/archived?desk_id=${deskId}`
+  );
+  if (!response.ok) {
+    throw new Error("Failed to fetch archived conversations");
+  }
+  return response.json();
+};
+
 export const getConversation = async (
   id: string,
   deskId?: string
@@ -326,6 +338,24 @@ export const archiveConversation = async (
   );
   if (!response.ok) {
     throw new Error("Failed to archive conversation");
+  }
+};
+
+export const deleteConversation = async (
+  conversationId: string,
+  deskId: string
+): Promise<void> => {
+  const response = await fetch(
+    `${API_BASE_URL}/conversations/${conversationId}?desk_id=${deskId}`,
+    {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    }
+  );
+  if (!response.ok) {
+    throw new Error("Failed to delete conversation");
   }
 };
 
