@@ -47,7 +47,7 @@ type StorageBackend interface {
 	// ConversationMiv methods
 	CreateConversationMiv(miv *models.ConversationMiv) error
 	GetConversationMiv(mivID string) (*models.ConversationMiv, error)
-	GetConversationMivs(conversationID string) ([]*models.ConversationMiv, error)
+	GetConversationMivs(conversationID string, deskID string) ([]*models.ConversationMiv, error)
 	UpdateConversationMiv(miv *models.ConversationMiv) error
 	MarkConversationMivAsRead(mivID string, deskID string) error
 	MarkConversationMivsAsRead(conversationID string, deskID string) error

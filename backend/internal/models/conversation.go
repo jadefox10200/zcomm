@@ -26,6 +26,7 @@ const (
 type ConversationMiv struct {
 	ID             string     `json:"id"`
 	ConversationID string     `json:"conversation_id"`       // Parent conversation ID
+	Owner          string     `json:"owner"`                 // Desk ID that owns this copy of the miv
 	SeqNo          int        `json:"seq_no"`                // Sequence number in conversation (1, 2, 3, ...)
 	From           string     `json:"from"`                  // Sender desk ID
 	To             string     `json:"to"`                    // Original recipient desk ID (for display)

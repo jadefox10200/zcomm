@@ -484,13 +484,24 @@ func (s *MemoryStorage) CreateConversationMiv(miv *models.ConversationMiv) error
 }
 
 // GetConversationMivs retrieves all mivs for a conversation
-func (s *MemoryStorage) GetConversationMivs(conversationID string) ([]*models.ConversationMiv, error) {
+func (s *MemoryStorage) GetConversationMivs(conversationID string, ownerID ...string) ([]*models.ConversationMiv, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	mivs, exists := s.conversationMivs[conversationID]
 	if !exists {
 		return nil, fmt.Errorf("conversation not found: %s", conversationID)
+	}
+
+	// If ownerID is provided, filter by owner for security
+	if len(ownerID) > 0 && ownerID[0] != "" {
+		var filteredMivs []*models.ConversationMiv
+		for _, miv := range mivs {
+			if miv.Owner == ownerID[0] {
+				filteredMivs = append(filteredMivs, miv)
+			}
+		}
+		return filteredMivs, nil
 	}
 
 	return mivs, nil

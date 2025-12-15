@@ -53,6 +53,7 @@ CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated
 CREATE TABLE IF NOT EXISTS conversation_mivs (
     id TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL,
+    owner TEXT NOT NULL,
     seq_no INTEGER NOT NULL DEFAULT 1,
     from_desk_id TEXT NOT NULL,
     to_desk_id TEXT NOT NULL,
@@ -76,12 +77,13 @@ CREATE TABLE IF NOT EXISTS conversation_mivs (
     rejected_miv_id TEXT,
     created_at DATETIME NOT NULL,
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+    FOREIGN KEY (owner) REFERENCES desks(id) ON DELETE CASCADE,
     FOREIGN KEY (from_desk_id) REFERENCES desks(id) ON DELETE CASCADE,
     FOREIGN KEY (to_desk_id) REFERENCES desks(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_conversation_mivs_conversation_id ON conversation_mivs(conversation_id);
-CREATE INDEX IF NOT EXISTS idx_conversation_mivs_arrow_to_state ON conversation_mivs(arrow_to, state, deleted);
+CREATE INDEX IF NOT EXISTS idx_conversation_mivs_owner_state ON conversation_mivs(owner, state, deleted);
 CREATE INDEX IF NOT EXISTS idx_conversation_mivs_created_at ON conversation_mivs(created_at);
 CREATE INDEX IF NOT EXISTS idx_conversation_mivs_arrow_to ON conversation_mivs(arrow_to);
 CREATE INDEX IF NOT EXISTS idx_conversation_mivs_state ON conversation_mivs(state);

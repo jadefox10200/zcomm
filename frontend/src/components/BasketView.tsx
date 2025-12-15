@@ -83,6 +83,9 @@ function BasketView({
             );
             const mivArray = fullConv.mivs || [];
             const filteredMivs = mivArray.filter((miv) => {
+              // CRITICAL: Only show mivs owned by current user
+              if (miv.owner !== deskId) return false;
+              console.log(miv.owner, deskId, miv.id, miv.state);
               // Filter based on miv state from backend
               if (miv.state !== selectedBasket) return false;
 

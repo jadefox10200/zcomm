@@ -372,15 +372,16 @@ func (s *SQLiteStorage) ListConversationsByDesk(deskID string) ([]*models.Conver
 	rows, err := s.db.Query(`
 		SELECT DISTINCT c.id, c.desk_id, c.subject, c.is_archived, c.created_at, c.updated_at
 		FROM conversations c
-		LEFT JOIN conversation_mivs cm ON c.id = cm.conversation_id 
-		WHERE c.desk_id = ? 
+		INNER JOIN conversation_mivs cm ON c.id = cm.conversation_id 
+		WHERE cm.owner = ?
+		  AND cm.deleted = 0
+		  AND cm.is_forgotten = 0
 		  AND (
 		    c.is_archived = 0 
 		    OR c.is_archived IS NULL
-		    OR (c.is_archived = 1 AND cm.arrow_to = ? AND cm.state IN ('IN', 'PENDING') AND cm.deleted = 0)
 		  )
 		ORDER BY c.updated_at DESC
-	`, deskID, deskID)
+	`, deskID)
 	if err != nil {
 		return nil, err
 	}
@@ -400,12 +401,12 @@ func (s *SQLiteStorage) ListConversationsByDesk(deskID string) ([]*models.Conver
 
 func (s *SQLiteStorage) ListArchivedConversationsByDesk(deskID string) ([]*models.Conversation, error) {
 	rows, err := s.db.Query(`
-		SELECT c.id, c.desk_id, c.subject, c.is_archived, c.created_at, c.updated_at,
-		       COALESCE(COUNT(cm.id), 0) as miv_count
+		SELECT DISTINCT c.id, c.desk_id, c.subject, c.is_archived, c.created_at, c.updated_at
 		FROM conversations c
-		LEFT JOIN conversation_mivs cm ON c.id = cm.conversation_id
-		WHERE c.desk_id = ? AND c.is_archived = 1
-		GROUP BY c.id, c.desk_id, c.subject, c.is_archived, c.created_at, c.updated_at
+		INNER JOIN conversation_mivs cm ON c.id = cm.conversation_id 
+		WHERE cm.owner = ?
+		  AND cm.is_forgotten = 0
+		  AND c.is_archived = 1
 		ORDER BY c.updated_at DESC
 	`, deskID)
 	if err != nil {
@@ -416,7 +417,7 @@ func (s *SQLiteStorage) ListArchivedConversationsByDesk(deskID string) ([]*model
 	var conversations []*models.Conversation
 	for rows.Next() {
 		conv := &models.Conversation{}
-		if err := rows.Scan(&conv.ID, &conv.DeskID, &conv.Subject, &conv.IsArchived, &conv.CreatedAt, &conv.UpdatedAt, &conv.MivCount); err != nil {
+		if err := rows.Scan(&conv.ID, &conv.DeskID, &conv.Subject, &conv.IsArchived, &conv.CreatedAt, &conv.UpdatedAt); err != nil {
 			return nil, err
 		}
 		conversations = append(conversations, conv)
@@ -464,11 +465,11 @@ func (s *SQLiteStorage) CreateConversationMiv(miv *models.ConversationMiv) error
 	}
 
 	_, err = s.db.Exec(`
-		INSERT INTO conversation_mivs (id, conversation_id, seq_no, from_desk_id, to_desk_id, arrow_to, subject, body, state, type, 
+		INSERT INTO conversation_mivs (id, conversation_id, owner, seq_no, from_desk_id, to_desk_id, arrow_to, subject, body, state, type, 
 			font_family, font_size, line_height, is_ack, is_forgotten, deleted, read_at, via, via_index, is_via_rejected, via_rejected_by, 
 			via_rejection, rejected_miv_id, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, miv.ID, miv.ConversationID, miv.SeqNo, miv.From, miv.To, miv.ArrowTo, miv.Subject, miv.Body, miv.State, miv.Type,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, miv.ID, miv.ConversationID, miv.Owner, miv.SeqNo, miv.From, miv.To, miv.ArrowTo, miv.Subject, miv.Body, miv.State, miv.Type,
 		fontFamily, fontSize, lineHeight, miv.IsAck, miv.IsForgotten, miv.Deleted, miv.ReadAt, string(viaJSON), miv.ViaIndex,
 		miv.IsViaRejected, miv.ViaRejectedBy, miv.ViaRejection, miv.RejectedMivID, miv.CreatedAt)
 
@@ -488,10 +489,10 @@ func (s *SQLiteStorage) GetConversationMiv(mivID string) (*models.ConversationMi
 	var fontFamily, fontSize, lineHeight string
 
 	err := s.db.QueryRow(`
-		SELECT id, conversation_id, seq_no, from_desk_id, to_desk_id, arrow_to, subject, body, state, type, font_family, font_size, line_height,
+		SELECT id, conversation_id, owner, seq_no, from_desk_id, to_desk_id, arrow_to, subject, body, state, type, font_family, font_size, line_height,
 			is_ack, is_forgotten, deleted, read_at, via, via_index, is_via_rejected, via_rejected_by, via_rejection, rejected_miv_id, created_at
 		FROM conversation_mivs WHERE id = ? AND deleted = 0
-	`, mivID).Scan(&miv.ID, &miv.ConversationID, &miv.SeqNo, &miv.From, &miv.To, &miv.ArrowTo, &miv.Subject, &miv.Body, &miv.State,
+	`, mivID).Scan(&miv.ID, &miv.ConversationID, &miv.Owner, &miv.SeqNo, &miv.From, &miv.To, &miv.ArrowTo, &miv.Subject, &miv.Body, &miv.State,
 		&miv.Type, &fontFamily, &fontSize, &lineHeight, &miv.IsAck, &miv.IsForgotten, &miv.Deleted, &readAt, &viaJSON, &miv.ViaIndex,
 		&miv.IsViaRejected, &miv.ViaRejectedBy, &miv.ViaRejection, &miv.RejectedMivID, &miv.CreatedAt)
 
@@ -527,12 +528,13 @@ func (s *SQLiteStorage) GetConversationMiv(mivID string) (*models.ConversationMi
 	return miv, nil
 }
 
-func (s *SQLiteStorage) GetConversationMivs(conversationID string) ([]*models.ConversationMiv, error) {
+func (s *SQLiteStorage) GetConversationMivs(conversationID string, deskID string) ([]*models.ConversationMiv, error) {
+	// SECURITY: Always filter by owner (deskID) to ensure users only see their own mivs
 	rows, err := s.db.Query(`
-		SELECT id, conversation_id, seq_no, from_desk_id, to_desk_id, arrow_to, subject, body, state, type, font_family, font_size, line_height,
+		SELECT id, conversation_id, owner, seq_no, from_desk_id, to_desk_id, arrow_to, subject, body, state, type, font_family, font_size, line_height,
 			is_ack, is_forgotten, deleted, read_at, via, via_index, is_via_rejected, via_rejected_by, via_rejection, rejected_miv_id, created_at
-		FROM conversation_mivs WHERE conversation_id = ? ORDER BY seq_no
-	`, conversationID)
+		FROM conversation_mivs WHERE conversation_id = ? AND owner = ? ORDER BY seq_no
+	`, conversationID, deskID)
 	if err != nil {
 		return nil, err
 	}
@@ -545,7 +547,7 @@ func (s *SQLiteStorage) GetConversationMivs(conversationID string) ([]*models.Co
 		var viaJSON string
 		var fontFamily, fontSize, lineHeight string
 
-		if err := rows.Scan(&miv.ID, &miv.ConversationID, &miv.SeqNo, &miv.From, &miv.To, &miv.ArrowTo, &miv.Subject, &miv.Body, &miv.State,
+		if err := rows.Scan(&miv.ID, &miv.ConversationID, &miv.Owner, &miv.SeqNo, &miv.From, &miv.To, &miv.ArrowTo, &miv.Subject, &miv.Body, &miv.State,
 			&miv.Type, &fontFamily, &fontSize, &lineHeight, &miv.IsAck, &miv.IsForgotten, &miv.Deleted, &readAt, &viaJSON, &miv.ViaIndex,
 			&miv.IsViaRejected, &miv.ViaRejectedBy, &miv.ViaRejection, &miv.RejectedMivID, &miv.CreatedAt); err != nil {
 			return nil, err
@@ -600,46 +602,66 @@ func (s *SQLiteStorage) UpdateConversationMiv(miv *models.ConversationMiv) error
 func (s *SQLiteStorage) MarkConversationMivAsRead(mivID string, deskID string) error {
 	now := time.Now()
 	
-	// First, get the miv being marked as read to find its conversation and sequence number
+	// First, get the miv being marked as read to check if it's a via intermediary
 	var conversationID string
 	var seqNo int
 	var fromDesk, toDesk string
+	var viaJSON string
+	var viaIndex int
 	err := s.db.QueryRow(`
-		SELECT conversation_id, seq_no, from_desk_id, to_desk_id 
+		SELECT conversation_id, seq_no, from_desk_id, to_desk_id, via, via_index
 		FROM conversation_mivs 
 		WHERE id = ? AND arrow_to = ? AND deleted = 0
-	`, mivID, deskID).Scan(&conversationID, &seqNo, &fromDesk, &toDesk)
+	`, mivID, deskID).Scan(&conversationID, &seqNo, &fromDesk, &toDesk, &viaJSON, &viaIndex)
 	if err != nil {
 		return err
 	}
 	
-	// Mark the recipient's miv as read AND change state from IN to PENDING
-	_, err = s.db.Exec(`
-		UPDATE conversation_mivs 
-		SET read_at = ?, state = CASE WHEN state = 'IN' THEN 'PENDING' ELSE state END 
-		WHERE id = ? AND arrow_to = ? AND deleted = 0
-	`, now, mivID, deskID)
+	// Check if this is a via intermediary by checking if deskID is in the via array
+	var via []string
+	if viaJSON != "" && viaJSON != "null" {
+		if err := json.Unmarshal([]byte(viaJSON), &via); err != nil {
+			return err
+		}
+	}
+	
+	// Determine if this reader is a via intermediary (not the final recipient)
+	isViaIntermediary := len(via) > 0 && viaIndex < len(via) && via[viaIndex] == deskID
+	
+	// Mark the recipient's miv as read
+	// Only change state from IN to PENDING if NOT a via intermediary
+	if isViaIntermediary {
+		// Via intermediaries keep the message in IN state
+		_, err = s.db.Exec(`
+			UPDATE conversation_mivs 
+			SET read_at = ? 
+			WHERE id = ? AND arrow_to = ? AND deleted = 0
+		`, now, mivID, deskID)
+	} else {
+		// Final recipients change state from IN to PENDING
+		_, err = s.db.Exec(`
+			UPDATE conversation_mivs 
+			SET read_at = ?, state = CASE WHEN state = 'IN' THEN 'PENDING' ELSE state END 
+			WHERE id = ? AND arrow_to = ? AND deleted = 0
+		`, now, mivID, deskID)
+	}
 	if err != nil {
 		return err
 	}
 	
-	// Find and mark the sender's corresponding miv as read (their SENT copy)
-	// The sender's conversation has from_desk and to_desk swapped from their perspective
-	_, err = s.db.Exec(`
-		UPDATE conversation_mivs 
-		SET read_at = ? 
-		WHERE conversation_id IN (
-			SELECT id FROM conversations 
-			WHERE desk_id = ? 
-			AND id IN (
-				SELECT conversation_id FROM conversation_mivs 
-				WHERE from_desk_id = ? AND to_desk_id = ? AND seq_no = ? AND deleted = 0
-			)
-		)
-		AND seq_no = ?
-		AND state = 'SENT'
-		AND deleted = 0
-	`, now, fromDesk, fromDesk, toDesk, seqNo, seqNo)
+	// ONLY send read receipt to sender if reader is the FINAL RECIPIENT (not a via intermediary)
+	if !isViaIntermediary {
+		// Find and mark the sender's corresponding miv as read (their SENT copy)
+		_, err = s.db.Exec(`
+			UPDATE conversation_mivs 
+			SET read_at = ? 
+			WHERE conversation_id = ?
+			AND owner = ?
+			AND seq_no = ?
+			AND state = 'SENT'
+			AND deleted = 0
+		`, now, conversationID, fromDesk, seqNo)
+	}
 	
 	return err
 }
@@ -654,10 +676,21 @@ func (s *SQLiteStorage) MarkConversationMivsAsRead(conversationID string, deskID
 }
 
 func (s *SQLiteStorage) DeleteConversationMivs(conversationID string, deskID string) error {
+	// Mark all mivs owned by this user as deleted (soft delete)
 	_, err := s.db.Exec(`
 		UPDATE conversation_mivs SET deleted = 1 
-		WHERE conversation_id = ? AND arrow_to = ? AND is_ack = 1
+		WHERE conversation_id = ? AND owner = ?
 	`, conversationID, deskID)
+	if err != nil {
+		return err
+	}
+
+	// After marking mivs as deleted, archive the conversation
+	// This way the conversation is only archived when a user deletes it (typically after ACK)
+	_, err = s.db.Exec(`
+		UPDATE conversations SET is_archived = 1 
+		WHERE id = ?
+	`, conversationID)
 	return err
 }
 

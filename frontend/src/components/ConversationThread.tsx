@@ -42,6 +42,13 @@ function ConversationThread({
   const [replyTemplateInitialized, setReplyTemplateInitialized] =
     useState(false);
 
+  // Filter mivs to only show those owned by current user and sort by seq_no
+  const filteredMivs = React.useMemo(() => {
+    return (conversation.mivs || [])
+      .filter((miv) => miv.owner === currentDeskId)
+      .sort((a, b) => a.seq_no - b.seq_no);
+  }, [conversation.mivs, currentDeskId]);
+
   useEffect(() => {
     const loadContactsData = async () => {
       try {
@@ -61,11 +68,12 @@ function ConversationThread({
       showReplyForm &&
       !replyTemplateInitialized &&
       contacts.length > 0 &&
-      conversation;
+      conversation &&
+      filteredMivs.length > 0;
 
     if (shouldInitializeReplyTemplate) {
       // Get the recipient (who we're replying to - the other party in conversation)
-      const latestMiv = conversation.mivs[conversation.mivs.length - 1];
+      const latestMiv = filteredMivs[filteredMivs.length - 1];
       const recipient =
         latestMiv.from === currentDeskId ? latestMiv.to : latestMiv.from;
 
@@ -92,6 +100,7 @@ function ConversationThread({
     currentDeskId,
     desk.default_salutation,
     desk.default_closure,
+    filteredMivs,
   ]);
 
   const handleReply = (e: React.FormEvent) => {
@@ -113,14 +122,14 @@ function ConversationThread({
 
   const handleDelete = async () => {
     try {
-      await api.archiveConversation(conversation.conversation.id);
+      await api.deleteConversation(conversation.conversation.id, currentDeskId);
       setShowDeleteConfirm(false);
       if (onArchive) {
         onArchive();
       }
     } catch (err) {
-      console.error("Failed to archive conversation:", err);
-      alert("Failed to archive conversation. Please try again.");
+      console.error("Failed to delete conversation:", err);
+      alert("Failed to delete conversation. Please try again.");
     }
   };
 
@@ -151,23 +160,6 @@ function ConversationThread({
       hour: "numeric",
       minute: "2-digit",
     });
-  };
-
-  const formatPhoneId = (value: string) => {
-    // Remove non-digits
-    const digits = value.replace(/\D/g, "");
-
-    // Format as XXXX-XX-XXXX
-    if (digits.length <= 4) {
-      return digits;
-    } else if (digits.length <= 6) {
-      return `${digits.slice(0, 4)}-${digits.slice(4)}`;
-    } else {
-      return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(
-        6,
-        10
-      )}`;
-    }
   };
 
   const formatDeskId = (id: string) => {
@@ -227,12 +219,12 @@ function ConversationThread({
         <div className="thread-header">
           <h3>Conversation Thread</h3>
           <span className="thread-count">
-            {conversation.mivs.length}{" "}
-            {conversation.mivs.length === 1 ? "message" : "messages"}
+            {filteredMivs.length}{" "}
+            {filteredMivs.length === 1 ? "message" : "messages"}
           </span>
         </div>
         <div className="thread-icons">
-          {conversation.mivs.map((m) => (
+          {filteredMivs.map((m) => (
             <div
               key={m.id}
               className={`thread-icon ${
@@ -262,7 +254,7 @@ function ConversationThread({
       </div>
 
       <div className="conversation-messages-inbox-style">
-        {conversation.mivs.map((miv, index) => {
+        {filteredMivs.map((miv, index) => {
           const isFromMe = miv.from === currentDeskId;
 
           return (
@@ -336,14 +328,15 @@ function ConversationThread({
           <>
             {showDeleteConfirm ? (
               <div className="delete-confirm">
-                <h3>Archive Conversation</h3>
+                <h3>Delete Conversation</h3>
                 <p>
-                  Are you sure you want to archive this conversation? It will be
-                  removed from your inbox.
+                  Are you sure you want to delete this conversation? It will be
+                  removed from your view only. Other participants will still see
+                  their copies.
                 </p>
                 <div className="delete-actions">
                   <button onClick={handleDelete} className="btn btn-danger">
-                    Yes, Archive
+                    Yes, Delete
                   </button>
                   <button
                     onClick={() => setShowDeleteConfirm(false)}

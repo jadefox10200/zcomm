@@ -61,7 +61,7 @@ function MivDetailWithContext({
       setLoading(true);
       try {
         const [convResponse, contactsResponse] = await Promise.all([
-          api.getConversation(miv.conversation_id),
+          api.getConversation(miv.conversation_id, currentDeskId),
           api.listContacts(currentDeskId),
         ]);
         setConversation(convResponse);
@@ -181,6 +181,7 @@ function MivDetailWithContext({
     const optimisticMiv: ConversationMiv = {
       id: `temp-${Date.now()}`,
       conversation_id: selectedMiv.conversation_id,
+      owner: currentDeskId, // Current user owns their copy of the reply
       seq_no: conversation ? (conversation.mivs || []).length + 1 : 1,
       from: currentDeskId,
       to: recipientId,
@@ -218,7 +219,8 @@ function MivDetailWithContext({
       await onReply(replyBody, false);
       // Reload conversation to get the real data from server
       const updatedConv = await api.getConversation(
-        selectedMiv.conversation_id
+        selectedMiv.conversation_id,
+        currentDeskId
       );
       setConversation(updatedConv);
     } catch (err) {
@@ -243,6 +245,7 @@ function MivDetailWithContext({
     const optimisticAck: ConversationMiv = {
       id: `temp-ack-${Date.now()}`,
       conversation_id: selectedMiv.conversation_id,
+      owner: currentDeskId, // Current user owns their ACK copy
       seq_no: conversation ? (conversation.mivs || []).length + 1 : 1,
       from: currentDeskId,
       to: recipientId,
@@ -280,7 +283,8 @@ function MivDetailWithContext({
       await onReply(messageToSend, true);
       // Reload conversation to get the real data from server
       const updatedConv = await api.getConversation(
-        selectedMiv.conversation_id
+        selectedMiv.conversation_id,
+        currentDeskId
       );
       setConversation(updatedConv);
     } catch (err) {

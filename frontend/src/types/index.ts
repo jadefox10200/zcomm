@@ -132,6 +132,7 @@ export interface Conversation {
 export interface ConversationMiv {
   id: string;
   conversation_id: string;
+  owner: string;
   seq_no: number;
   from: string;
   to: string;
