@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS conversation_mivs (
     is_forgotten BOOLEAN NOT NULL DEFAULT 0,
     deleted BOOLEAN NOT NULL DEFAULT 0,
     read_at DATETIME,
+    cc TEXT,
     via TEXT,
     via_index INTEGER DEFAULT 0,
     is_via_rejected BOOLEAN NOT NULL DEFAULT 0,

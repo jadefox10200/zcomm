@@ -85,7 +85,7 @@ function BasketView({
             const filteredMivs = mivArray.filter((miv) => {
               // CRITICAL: Only show mivs owned by current user
               if (miv.owner !== deskId) return false;
-              console.log(miv.owner, deskId, miv.id, miv.state);
+
               // Filter based on miv state from backend
               if (miv.state !== selectedBasket) return false;
 
@@ -97,6 +97,7 @@ function BasketView({
 
               // Exclude ACK mivs from SENT basket (they don't expect replies)
               if (selectedBasket === "SENT" && miv.is_ack) return false;
+              if (selectedBasket === "SENT" && miv.type === "VIA") return false;
 
               return true;
             });
@@ -256,23 +257,16 @@ function BasketView({
                 <div className="basket-item-first-row">
                   <span className="basket-from">
                     {miv.state === "SENT"
-                      ? `To: ${miv.to}`
-                      : miv.state === "CC"
-                      ? `CC: ${miv.from}`
-                      : `From: ${miv.from}`}
+                      ? `To: ${getDisplayName(miv.to)}`
+                      : miv.type === "CC"
+                      ? `CC from: ${getDisplayName(miv.from)}`
+                      : `From: ${getDisplayName(miv.from)}`}
                   </span>
-                  {miv.cc && miv.cc.length > 0 && miv.state !== "CC" && (
+                  {miv.cc && miv.cc.length > 0 && (
                     <span className="basket-cc">
                       CC:{" "}
                       {miv.cc
-                        .map((ccRecipient) => {
-                          const contact = contacts.find(
-                            (c) => c.desk_id_ref === ccRecipient
-                          );
-                          return contact
-                            ? contact.name
-                            : formatPhoneId(ccRecipient);
-                        })
+                        .map((ccRecipient) => getDisplayName(ccRecipient))
                         .join(", ")}
                     </span>
                   )}
@@ -281,12 +275,7 @@ function BasketView({
                       via:{" "}
                       {miv.via
                         .map((viaRecipient, idx) => {
-                          const contact = contacts.find(
-                            (c) => c.desk_id_ref === viaRecipient
-                          );
-                          const name = contact
-                            ? contact.name
-                            : formatPhoneId(viaRecipient);
+                          const name = getDisplayName(viaRecipient);
 
                           // Check if this is the current via recipient
                           const isCurrent = idx === miv.via_index;

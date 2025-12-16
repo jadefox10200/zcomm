@@ -450,6 +450,12 @@ func (s *SQLiteStorage) CreateConversationMiv(miv *models.ConversationMiv) error
 		return err
 	}
 
+	// Serialize CC slice to JSON
+	ccJSON, err := json.Marshal(miv.Cc)
+	if err != nil {
+		return err
+	}
+
 	// Handle nil font values
 	fontFamily := ""
 	if miv.FontFamily != nil {
@@ -466,11 +472,11 @@ func (s *SQLiteStorage) CreateConversationMiv(miv *models.ConversationMiv) error
 
 	_, err = s.db.Exec(`
 		INSERT INTO conversation_mivs (id, conversation_id, owner, seq_no, from_desk_id, to_desk_id, arrow_to, subject, body, state, type, 
-			font_family, font_size, line_height, is_ack, is_forgotten, deleted, read_at, via, via_index, is_via_rejected, via_rejected_by, 
+			font_family, font_size, line_height, is_ack, is_forgotten, deleted, read_at, cc, via, via_index, is_via_rejected, via_rejected_by, 
 			via_rejection, rejected_miv_id, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, miv.ID, miv.ConversationID, miv.Owner, miv.SeqNo, miv.From, miv.To, miv.ArrowTo, miv.Subject, miv.Body, miv.State, miv.Type,
-		fontFamily, fontSize, lineHeight, miv.IsAck, miv.IsForgotten, miv.Deleted, miv.ReadAt, string(viaJSON), miv.ViaIndex,
+		fontFamily, fontSize, lineHeight, miv.IsAck, miv.IsForgotten, miv.Deleted, miv.ReadAt, string(ccJSON), string(viaJSON), miv.ViaIndex,
 		miv.IsViaRejected, miv.ViaRejectedBy, miv.ViaRejection, miv.RejectedMivID, miv.CreatedAt)
 
 	if err != nil {
@@ -485,15 +491,15 @@ func (s *SQLiteStorage) CreateConversationMiv(miv *models.ConversationMiv) error
 func (s *SQLiteStorage) GetConversationMiv(mivID string) (*models.ConversationMiv, error) {
 	miv := &models.ConversationMiv{}
 	var readAt sql.NullTime
-	var viaJSON string
+	var ccJSON, viaJSON string
 	var fontFamily, fontSize, lineHeight string
 
 	err := s.db.QueryRow(`
 		SELECT id, conversation_id, owner, seq_no, from_desk_id, to_desk_id, arrow_to, subject, body, state, type, font_family, font_size, line_height,
-			is_ack, is_forgotten, deleted, read_at, via, via_index, is_via_rejected, via_rejected_by, via_rejection, rejected_miv_id, created_at
+			is_ack, is_forgotten, deleted, read_at, cc, via, via_index, is_via_rejected, via_rejected_by, via_rejection, rejected_miv_id, created_at
 		FROM conversation_mivs WHERE id = ? AND deleted = 0
 	`, mivID).Scan(&miv.ID, &miv.ConversationID, &miv.Owner, &miv.SeqNo, &miv.From, &miv.To, &miv.ArrowTo, &miv.Subject, &miv.Body, &miv.State,
-		&miv.Type, &fontFamily, &fontSize, &lineHeight, &miv.IsAck, &miv.IsForgotten, &miv.Deleted, &readAt, &viaJSON, &miv.ViaIndex,
+		&miv.Type, &fontFamily, &fontSize, &lineHeight, &miv.IsAck, &miv.IsForgotten, &miv.Deleted, &readAt, &ccJSON, &viaJSON, &miv.ViaIndex,
 		&miv.IsViaRejected, &miv.ViaRejectedBy, &miv.ViaRejection, &miv.RejectedMivID, &miv.CreatedAt)
 
 	if err != nil {
@@ -518,6 +524,13 @@ func (s *SQLiteStorage) GetConversationMiv(mivID string) (*models.ConversationMi
 		miv.LineHeight = &lineHeight
 	}
 
+	// Deserialize CC
+	if ccJSON != "" && ccJSON != "null" {
+		if err := json.Unmarshal([]byte(ccJSON), &miv.Cc); err != nil {
+			return nil, err
+		}
+	}
+
 	// Deserialize Via
 	if viaJSON != "" && viaJSON != "null" {
 		if err := json.Unmarshal([]byte(viaJSON), &miv.Via); err != nil {
@@ -532,7 +545,7 @@ func (s *SQLiteStorage) GetConversationMivs(conversationID string, deskID string
 	// SECURITY: Always filter by owner (deskID) to ensure users only see their own mivs
 	rows, err := s.db.Query(`
 		SELECT id, conversation_id, owner, seq_no, from_desk_id, to_desk_id, arrow_to, subject, body, state, type, font_family, font_size, line_height,
-			is_ack, is_forgotten, deleted, read_at, via, via_index, is_via_rejected, via_rejected_by, via_rejection, rejected_miv_id, created_at
+			is_ack, is_forgotten, deleted, read_at, cc, via, via_index, is_via_rejected, via_rejected_by, via_rejection, rejected_miv_id, created_at
 		FROM conversation_mivs WHERE conversation_id = ? AND owner = ? ORDER BY seq_no
 	`, conversationID, deskID)
 	if err != nil {
@@ -544,11 +557,11 @@ func (s *SQLiteStorage) GetConversationMivs(conversationID string, deskID string
 	for rows.Next() {
 		miv := &models.ConversationMiv{}
 		var readAt sql.NullTime
-		var viaJSON string
+		var ccJSON, viaJSON string
 		var fontFamily, fontSize, lineHeight string
 
 		if err := rows.Scan(&miv.ID, &miv.ConversationID, &miv.Owner, &miv.SeqNo, &miv.From, &miv.To, &miv.ArrowTo, &miv.Subject, &miv.Body, &miv.State,
-			&miv.Type, &fontFamily, &fontSize, &lineHeight, &miv.IsAck, &miv.IsForgotten, &miv.Deleted, &readAt, &viaJSON, &miv.ViaIndex,
+			&miv.Type, &fontFamily, &fontSize, &lineHeight, &miv.IsAck, &miv.IsForgotten, &miv.Deleted, &readAt, &ccJSON, &viaJSON, &miv.ViaIndex,
 			&miv.IsViaRejected, &miv.ViaRejectedBy, &miv.ViaRejection, &miv.RejectedMivID, &miv.CreatedAt); err != nil {
 			return nil, err
 		}
@@ -566,6 +579,13 @@ func (s *SQLiteStorage) GetConversationMivs(conversationID string, deskID string
 		}
 		if lineHeight != "" {
 			miv.LineHeight = &lineHeight
+		}
+
+		// Deserialize CC
+		if ccJSON != "" && ccJSON != "null" {
+			if err := json.Unmarshal([]byte(ccJSON), &miv.Cc); err != nil {
+				return nil, err
+			}
 		}
 
 		// Deserialize Via
@@ -602,17 +622,18 @@ func (s *SQLiteStorage) UpdateConversationMiv(miv *models.ConversationMiv) error
 func (s *SQLiteStorage) MarkConversationMivAsRead(mivID string, deskID string) error {
 	now := time.Now()
 	
-	// First, get the miv being marked as read to check if it's a via intermediary
+	// First, get the miv being marked as read to check if it's a via intermediary or CC recipient
 	var conversationID string
 	var seqNo int
 	var fromDesk, toDesk string
+	var mivType string
 	var viaJSON string
 	var viaIndex int
 	err := s.db.QueryRow(`
-		SELECT conversation_id, seq_no, from_desk_id, to_desk_id, via, via_index
+		SELECT conversation_id, seq_no, from_desk_id, to_desk_id, type, via, via_index
 		FROM conversation_mivs 
 		WHERE id = ? AND arrow_to = ? AND deleted = 0
-	`, mivID, deskID).Scan(&conversationID, &seqNo, &fromDesk, &toDesk, &viaJSON, &viaIndex)
+	`, mivID, deskID).Scan(&conversationID, &seqNo, &fromDesk, &toDesk, &mivType, &viaJSON, &viaIndex)
 	if err != nil {
 		return err
 	}
@@ -628,8 +649,12 @@ func (s *SQLiteStorage) MarkConversationMivAsRead(mivID string, deskID string) e
 	// Determine if this reader is a via intermediary (not the final recipient)
 	isViaIntermediary := len(via) > 0 && viaIndex < len(via) && via[viaIndex] == deskID
 	
+	// Determine if this reader is a CC recipient
+	isCCRecipient := mivType == "CC"
+	
 	// Mark the recipient's miv as read
-	// Only change state from IN to PENDING if NOT a via intermediary
+	// Via intermediaries don't change state (stay IN)
+	// CC recipients and final recipients change state from IN to PENDING
 	if isViaIntermediary {
 		// Via intermediaries keep the message in IN state
 		_, err = s.db.Exec(`
@@ -638,7 +663,7 @@ func (s *SQLiteStorage) MarkConversationMivAsRead(mivID string, deskID string) e
 			WHERE id = ? AND arrow_to = ? AND deleted = 0
 		`, now, mivID, deskID)
 	} else {
-		// Final recipients change state from IN to PENDING
+		// Final recipients and CC recipients change state from IN to PENDING
 		_, err = s.db.Exec(`
 			UPDATE conversation_mivs 
 			SET read_at = ?, state = CASE WHEN state = 'IN' THEN 'PENDING' ELSE state END 
@@ -649,8 +674,8 @@ func (s *SQLiteStorage) MarkConversationMivAsRead(mivID string, deskID string) e
 		return err
 	}
 	
-	// ONLY send read receipt to sender if reader is the FINAL RECIPIENT (not a via intermediary)
-	if !isViaIntermediary {
+	// ONLY send read receipt to sender if reader is the FINAL RECIPIENT (not a via intermediary or CC recipient)
+	if !isViaIntermediary && !isCCRecipient {
 		// Find and mark the sender's corresponding miv as read (their SENT copy)
 		_, err = s.db.Exec(`
 			UPDATE conversation_mivs 

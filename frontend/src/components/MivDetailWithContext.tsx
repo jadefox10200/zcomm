@@ -53,8 +53,6 @@ function MivDetailWithContext({
   const [showAddContactModal, setShowAddContactModal] = useState(false);
   const [newContactName, setNewContactName] = useState("");
   const [newContactDeskId, setNewContactDeskId] = useState("");
-  const [originalRejectedMiv, setOriginalRejectedMiv] =
-    useState<ConversationMiv | null>(null);
 
   useEffect(() => {
     const loadData = async () => {
@@ -70,16 +68,6 @@ function MivDetailWithContext({
         const mivArray = convResponse.mivs || [];
         const currentMiv = mivArray.find((m) => m.id === miv.id) || miv;
         setSelectedMiv(currentMiv);
-
-        // If this is a rejection notice, load the original rejected MIV for resubmit
-        if (currentMiv.rejected_miv_id) {
-          const originalMiv = mivArray.find(
-            (m) => m.id === currentMiv.rejected_miv_id
-          );
-          if (originalMiv) {
-            setOriginalRejectedMiv(originalMiv);
-          }
-        }
 
         // Mark message as read (move from IN/CC to PENDING) if it's currently in IN or CC state
         // BUT: Don't mark as read if current user is a via recipient (they're just routing, not reading)
@@ -392,14 +380,6 @@ function MivDetailWithContext({
     }
   };
 
-  const handleResubmit = () => {
-    if (onResubmit) {
-      // Use the original rejected MIV if available, otherwise fall back to current MIV
-      const mivToResubmit = originalRejectedMiv || selectedMiv;
-      onResubmit(mivToResubmit);
-    }
-  };
-
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     return date.toLocaleString("en-US", {
@@ -573,60 +553,86 @@ function MivDetailWithContext({
                     )}
                 </div>
                 {selectedMiv.via && selectedMiv.via.length > 0 && (
-                  <div className="epistle-field">
-                    <span className="epistle-field-label">via:</span>
-                    <span className="epistle-field-value">
-                      {selectedMiv.via.map((viaRecipient, idx) => {
+                  <>
+                    {[...selectedMiv.via]
+                      .reverse()
+                      .map((viaRecipient, reverseIdx) => {
+                        // Calculate the original index (for logic) and via number (for display)
+                        const originalIdx =
+                          selectedMiv.via!.length - 1 - reverseIdx;
+                        const viaNumber = selectedMiv.via!.length - originalIdx;
                         const displayName = getDisplayName(viaRecipient);
 
                         // For CC copies, show arrow to whoever matches arrow_to (the CC recipient viewing this copy)
+                        // For VIA copies, show arrow to current via recipient based on via_index
                         // For regular mivs, show arrow to current via recipient based on via_index
                         let isCurrent = false;
                         if (selectedMiv.type === "CC") {
                           // For CC copies, arrow points to the CC recipient (arrow_to)
                           isCurrent = viaRecipient === selectedMiv.arrow_to;
                         } else {
-                          // For regular mivs, arrow follows via_index
-                          isCurrent = idx === selectedMiv.via_index;
+                          // For VIA and regular mivs, arrow follows via_index
+                          isCurrent = originalIdx === selectedMiv.via_index;
                         }
 
-                        const hasPassed = idx < (selectedMiv.via_index || 0);
+                        const hasPassed =
+                          originalIdx < (selectedMiv.via_index || 0);
 
                         let statusSuffix = "";
                         if (isCurrent) {
                           statusSuffix = " ←";
                         } else if (hasPassed) {
-                          statusSuffix = " [OK]";
+                          // Show approval date if passed (using created_at as placeholder)
+                          const approvalDate = selectedMiv.created_at
+                            ? new Date(
+                                selectedMiv.created_at
+                              ).toLocaleDateString("en-GB", {
+                                day: "numeric",
+                                month: "short",
+                                year: "2-digit",
+                              })
+                            : "";
+                          statusSuffix = approvalDate
+                            ? ` [OK ${approvalDate}]`
+                            : " [OK]";
                         }
 
                         return (
-                          <span key={idx}>
-                            {idx > 0 && ", "}
-                            {displayName}
-                            {statusSuffix}
-                            {!isContact(viaRecipient) &&
-                              !isOwnDeskId(viaRecipient) && (
-                                <button
-                                  className="btn-add-contact-inline"
-                                  onClick={() =>
-                                    openAddContactModal(viaRecipient)
-                                  }
-                                  title="Add as contact"
-                                >
-                                  + Add Contact
-                                </button>
-                              )}
-                          </span>
+                          <div key={originalIdx} className="epistle-field">
+                            <span className="epistle-field-label">
+                              via {viaNumber}:
+                            </span>
+                            <span className="epistle-field-value">
+                              {displayName}
+                              {statusSuffix}
+                              {!isContact(viaRecipient) &&
+                                !isOwnDeskId(viaRecipient) && (
+                                  <button
+                                    className="btn-add-contact-inline"
+                                    onClick={() =>
+                                      openAddContactModal(viaRecipient)
+                                    }
+                                    title="Add as contact"
+                                  >
+                                    + Add Contact
+                                  </button>
+                                )}
+                            </span>
+                          </div>
                         );
                       })}
-                      {selectedMiv.is_via_rejected && (
-                        <span style={{ color: "#db2828", fontWeight: "600" }}>
-                          {" "}
+                    {selectedMiv.is_via_rejected && (
+                      <div className="epistle-field">
+                        <span className="epistle-field-label"></span>
+                        <span
+                          className="epistle-field-value"
+                          style={{ color: "#db2828", fontWeight: "600" }}
+                        >
                           [REJECTED]
                         </span>
-                      )}
-                    </span>
-                  </div>
+                      </div>
+                    )}
+                  </>
                 )}
                 <div className="epistle-field">
                   <span className="epistle-field-label">From:</span>
@@ -744,31 +750,11 @@ function MivDetailWithContext({
                 </>
               )}
 
-            {/* Resubmit/Delete options for rejected via routing messages (for original sender) */}
-            {canShowActions() &&
-              selectedMiv.rejected_miv_id &&
-              !showForgetConfirm &&
-              !showDeleteConfirm &&
-              onResubmit && (
-                <>
-                  <button className="btn btn-primary" onClick={handleResubmit}>
-                    Resubmit
-                  </button>
-                  <button
-                    className="btn btn-danger"
-                    onClick={() => setShowDeleteConfirm(true)}
-                  >
-                    Delete
-                  </button>
-                </>
-              )}
-
-            {/* Normal recipient actions - only show if user has an actionable miv (IN or PENDING) and NOT a via recipient and NOT a rejection notice */}
+            {/* Normal recipient actions - only show if user has an actionable miv (IN or PENDING) and NOT a via recipient */}
             {canShowActions() &&
               selectedMiv.type !== "CC" &&
               selectedMiv.arrow_to === currentDeskId &&
               !isCurrentViaRecipient() &&
-              !selectedMiv.rejected_miv_id &&
               !showReply &&
               !showAckConfirm &&
               !showForgetConfirm &&

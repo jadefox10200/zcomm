@@ -19,6 +19,7 @@ type MivType string
 const (
 	MivTypeMiv  MivType = "MIV"  // Regular message
 	MivTypeCC   MivType = "CC"   // CC copy
+	MivTypeVia  MivType = "VIA"  // Via routing intermediary
 	MivTypeMemo MivType = "MEMO" // Memo (for future use)
 )
 

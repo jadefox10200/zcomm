@@ -225,8 +225,12 @@ function App() {
               inboxCount++;
             } else if (miv.state === "PENDING") {
               pendingCount++;
-            } else if (miv.state === "SENT" && !miv.is_ack) {
-              // Exclude ACK mivs from SENT basket count (they don't expect replies)
+            } else if (
+              miv.state === "SENT" &&
+              !miv.is_ack &&
+              miv.type !== "VIA"
+            ) {
+              // Exclude ACK mivs and VIA mivs from SENT basket count (they don't expect replies)
               sentCount++;
             }
           }

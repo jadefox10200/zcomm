@@ -12,7 +12,8 @@ const (
 	StateOUT        MivState = "OUT"        // DEPRECATED: Use SENT instead
 	StateUNANSWERED MivState = "UNANSWERED" // DEPRECATED: Use SENT instead
 	StateARCHIVED   MivState = "ARCHIVED"   // Conversations that have ended but can still be reviewed
-	StateCC         MivState = "CC"         // CC copies of messages with limited interaction capabilities
+	StateREMOVED    MivState = "REMOVED"    // CC mivs that have been removed from basket
+	StateCC         MivState = "CC"         // DEPRECATED: CC mivs now use IN/PENDING states
 )
 
 // Miv represents a message in the Missiv system

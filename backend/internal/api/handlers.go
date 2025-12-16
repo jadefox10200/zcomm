@@ -698,6 +698,13 @@ func (s *Server) createConversation(c *gin.Context) {
 	}
 	normalizedRecipient := crypto.NormalizeDeskID(actualRecipient)
 
+	// Determine the type for the first recipient
+	// If they are a via intermediary (not the final recipient), mark as VIA
+	firstRecipientType := models.MivTypeMiv
+	if len(req.Via) > 0 && actualRecipient != req.To {
+		firstRecipientType = models.MivTypeVia
+	}
+
 	// Create SENDER's miv (state = SENT) in the shared conversation
 	senderMiv := &models.ConversationMiv{
 		ConversationID: conv.ID, // Shared conversation ID
@@ -727,14 +734,14 @@ func (s *Server) createConversation(c *gin.Context) {
 
 	// Create RECIPIENT's miv (state = IN) in the same shared conversation
 	recipientMiv := &models.ConversationMiv{
-		ConversationID: conv.ID,            // Same shared conversation ID
-		Owner:          normalizedRecipient, // Recipient owns this copy
-		SeqNo:          1,                   // Same sequence number as sender's
+		ConversationID: conv.ID,                 // Same shared conversation ID
+		Owner:          normalizedRecipient,      // Recipient owns this copy
+		SeqNo:          1,                        // Same sequence number as sender's
 		From:           deskID,
 		To:             req.To, // Final recipient for display
 		Cc:             req.Cc,
-		ArrowTo:        actualRecipient, // Arrow points to actual recipient (via or final)
-		Type:           models.MivTypeMiv,
+		ArrowTo:        actualRecipient,      // Arrow points to actual recipient (via or final)
+		Type:           firstRecipientType,   // VIA if intermediary, MIV if final recipient
 		Subject:        req.Subject,
 		Body:           base64.StdEncoding.EncodeToString([]byte(req.Body)),
 		State:          models.StateIN, // Recipient sees IN
@@ -763,35 +770,27 @@ func (s *Server) createConversation(c *gin.Context) {
 	}
 	s.storage.CreateNotification(notification)
 
-	// Create CC copies of the miv for each CC recipient (SEPARATE conversations)
+	// Create CC copies of the miv for each CC recipient in the SAME conversation
 	for _, ccRecipient := range req.Cc {
 		if ccRecipient != "" {
 			normalizedCc := crypto.NormalizeDeskID(ccRecipient)
 			
-			// Create separate conversation for CC recipient
-			ccConv := &models.Conversation{
-				Subject: fmt.Sprintf("CC: %s", req.Subject), // Prefix subject to indicate CC
-				DeskID:  ccRecipient, // CC recipient owns this conversation
-			}
-
-			if err := s.storage.CreateConversation(ccConv); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create CC conversation"})
-				return
-			}
-			
-			// Create CC copy of the miv in its own conversation
+			// Create CC copy of the miv in the SAME conversation
+			// CC recipient owns their copy
 			ccMiv := &models.ConversationMiv{
-				ConversationID: ccConv.ID, // Separate conversation
-				SeqNo:          1, // First and only miv in this conversation
+				ConversationID: conv.ID, // SAME conversation as sender/recipient
+				Owner:          ccRecipient, // CRITICAL: CC recipient owns their copy
+				SeqNo:          1, // First miv from CC recipient's perspective
 				From:           deskID,
 				To:             req.To, // Original recipient for display
 				Cc:             req.Cc, // Include all CC recipients for reference
-				ArrowTo:        ccRecipient, // Who actually receives this piece of paper
+				ArrowTo:        ccRecipient, // Arrow points to CC recipient
 				Type:           models.MivTypeCC, // CC copy
 				Subject:        req.Subject,
 				Body:           base64.StdEncoding.EncodeToString([]byte(req.Body)),
-				State:          models.StateCC, // CC state for limited interaction
+				State:          models.StateIN, // CC mivs start in IN state
 				IsEncrypted:    false,
+				IsAck:          false,
 				FontFamily:     req.FontFamily,
 				FontSize:       req.FontSize,
 				LineHeight:     req.LineHeight,
@@ -810,7 +809,7 @@ func (s *Server) createConversation(c *gin.Context) {
 				DeskID:         normalizedCc,
 				Type:           models.NotificationTypeNewMiv,
 				MivID:          ccMiv.ID,
-				ConversationID: ccConv.ID, // Separate conversation
+				ConversationID: conv.ID, // SAME conversation
 				Message:        fmt.Sprintf("CC: New message from %s: %s", deskID, req.Subject),
 				Read:           false,
 			}
@@ -967,25 +966,36 @@ func (s *Server) replyToConversation(c *gin.Context) {
 	// CRITICAL: Create recipient's copy of the reply in the SAME conversation
 	// Both sender and recipient share the same conversation ID, but own different mivs
 	
-	// Get the next sequence number for recipient's mivs in this conversation
-	recipientMivs, err := s.storage.GetConversationMivs(conversationID, recipientID)
+	// For via routing, create miv for the FIRST via intermediary (actualRecipient)
+	// NOT the final recipient
+	normalizedActualRecipient := crypto.NormalizeDeskID(actualRecipient)
+	
+	// Determine the type for the actual recipient
+	// If they are a via intermediary (not the final recipient), mark as VIA
+	actualRecipientType := models.MivTypeMiv
+	if len(viaRecipients) > 0 && actualRecipient != recipientID {
+		actualRecipientType = models.MivTypeVia
+	}
+	
+	// Get the next sequence number for actual recipient's mivs in this conversation
+	actualRecipientMivs, err := s.storage.GetConversationMivs(conversationID, normalizedActualRecipient)
 	if err != nil {
-		log.Printf("ERROR: Failed to get recipient mivs: %v", err)
+		log.Printf("ERROR: Failed to get actual recipient mivs: %v", err)
 	} else {
-		recipientSeqNo := len(recipientMivs) + 1
+		actualRecipientSeqNo := len(actualRecipientMivs) + 1
 
-		// Create the reply miv for recipient in the SAME conversation
+		// Create the reply miv for actual recipient in the SAME conversation
 		recipientReplyMiv := &models.ConversationMiv{
 			ConversationID: conversationID, // SAME conversation as sender
-			Owner:          recipientID, // CRITICAL: Recipient owns their IN copy
-			SeqNo:          recipientSeqNo,
+			Owner:          normalizedActualRecipient, // CRITICAL: Actual recipient (via or final) owns their IN copy
+			SeqNo:          actualRecipientSeqNo,
 			From:           deskID,
 			To:             recipientID,
 			Via:            viaRecipients,
 			ViaIndex:       0,
 			Cc:             ccRecipients,
-			ArrowTo:        recipientID, // Arrow points to recipient
-			Type:           models.MivTypeMiv,
+			ArrowTo:        normalizedActualRecipient, // Arrow points to actual recipient
+			Type:           actualRecipientType,       // VIA if intermediary, MIV if final recipient
 			Subject:        conv.Subject,
 			Body:           base64.StdEncoding.EncodeToString([]byte(req.Body)),
 			State:          models.StateIN, // IN state for recipient
@@ -999,7 +1009,7 @@ func (s *Server) replyToConversation(c *gin.Context) {
 		if err := s.storage.CreateConversationMiv(recipientReplyMiv); err != nil {
 			log.Printf("ERROR: Failed to create recipient reply miv: %v", err)
 		} else {
-			log.Printf("DEBUG: Created reply miv for recipient in conversation %s (seq %d)", conversationID, recipientSeqNo)
+			log.Printf("DEBUG: Created reply miv for actual recipient %s in conversation %s (seq %d)", normalizedActualRecipient, conversationID, actualRecipientSeqNo)
 		}
 	}
 
@@ -1015,57 +1025,32 @@ func (s *Server) replyToConversation(c *gin.Context) {
 
 	log.Printf("DEBUG: Found %d CC recipients for reply: %v", len(ccRecipients), ccRecipients)
 
-	// For each CC recipient, find their CC conversation and add the reply copy
+	// For each CC recipient, create a CC copy in the SAME conversation
 	for _, ccRecipient := range ccRecipients {
-		// Find the CC conversation for this recipient
-		// CC conversations have subject "CC: Original Subject" and are owned by the CC recipient
-		ccSubject := fmt.Sprintf("CC: %s", conv.Subject)
-		
-		log.Printf("DEBUG: Looking for CC conversation for recipient %s with subject %s", ccRecipient, ccSubject)
-		
-		// Get all conversations for this CC recipient
-		ccConvs, err := s.storage.ListConversationsByDesk(ccRecipient)
-		if err != nil {
-			log.Printf("ERROR: Failed to get conversations for CC recipient %s: %v", ccRecipient, err)
-			continue // Skip if can't get conversations
-		}
-		
-		log.Printf("DEBUG: Found %d conversations for CC recipient %s", len(ccConvs), ccRecipient)
-		
-		var ccConv *models.Conversation
-		for _, c := range ccConvs {
-			log.Printf("DEBUG: Checking conversation %s with subject %s (owned by %s)", c.ID, c.Subject, c.DeskID)
-			if c.Subject == ccSubject && c.DeskID == ccRecipient {
-				ccConv = c
-				log.Printf("DEBUG: Found matching CC conversation %s", c.ID)
-				break
-			}
-		}
-		
-		if ccConv != nil {
-			// Get existing mivs in CC conversation to determine next SeqNo - FILTER BY OWNER
-			ccMivs, err := s.storage.GetConversationMivs(ccConv.ID, ccRecipient)
+		if ccRecipient != "" && ccRecipient != deskID {
+			// Get existing mivs for CC recipient to determine next SeqNo
+			ccMivs, err := s.storage.GetConversationMivs(conv.ID, ccRecipient)
 			if err != nil {
-				log.Printf("ERROR: Failed to get mivs for CC conversation %s: %v", ccConv.ID, err)
+				log.Printf("ERROR: Failed to get mivs for CC recipient %s: %v", ccRecipient, err)
 				continue
 			}
 			
 			nextSeqNo := len(ccMivs) + 1
-			log.Printf("DEBUG: Creating CC reply miv #%d in conversation %s for recipient %s", nextSeqNo, ccConv.ID, ccRecipient)
+			log.Printf("DEBUG: Creating CC reply miv #%d in conversation %s for recipient %s", nextSeqNo, conv.ID, ccRecipient)
 			
-			// Create CC copy of the reply
+			// Create CC copy of the reply in the SAME conversation
 			ccReplyMiv := &models.ConversationMiv{
-				ConversationID: ccConv.ID,
+				ConversationID: conv.ID, // SAME conversation
 				Owner:          ccRecipient, // CRITICAL: CC recipient owns their copy
 				SeqNo:          nextSeqNo,
 				From:           deskID,
 				To:             recipientID, // Original recipient for display
 				Cc:             ccRecipients, // All CC recipients for reference
-				ArrowTo:        ccRecipient, // Who receives this CC copy
+				ArrowTo:        ccRecipient, // Arrow points to CC recipient
 				Type:           models.MivTypeCC, // CC copy
 				Subject:        conv.Subject,
 				Body:           base64.StdEncoding.EncodeToString([]byte(req.Body)),
-				State:          models.StateCC, // CC state
+				State:          models.StateIN, // CC mivs use IN state
 				IsEncrypted:    false,
 				IsAck:          req.IsAck,
 				FontFamily:     req.FontFamily,
@@ -1095,14 +1080,12 @@ func (s *Server) replyToConversation(c *gin.Context) {
 				DeskID:         normalizedCc,
 				Type:           notifType,
 				MivID:          ccReplyMiv.ID,
-				ConversationID: ccConv.ID,
+				ConversationID: conv.ID, // SAME conversation
 				Message:        message,
 				Read:           false,
 			}
 			s.storage.CreateNotification(ccNotification)
 			log.Printf("DEBUG: Created notification for CC recipient %s", normalizedCc)
-		} else {
-			log.Printf("ERROR: Could not find CC conversation for recipient %s with subject %s", ccRecipient, ccSubject)
 		}
 	}
 
@@ -1111,22 +1094,6 @@ func (s *Server) replyToConversation(c *gin.Context) {
 	if conv.IsArchived && !req.IsAck {
 		conv.IsArchived = false
 		s.storage.UpdateConversation(conv)
-		
-		// Also unarchive CC conversations when replying from archive
-		for _, ccRecipient := range ccRecipients {
-			ccSubject := fmt.Sprintf("CC: %s", conv.Subject)
-			ccConvs, err := s.storage.ListConversationsByDesk(ccRecipient)
-			if err != nil {
-				continue
-			}
-			for _, c := range ccConvs {
-				if c.Subject == ccSubject && c.DeskID == ccRecipient {
-					c.IsArchived = false
-					s.storage.UpdateConversation(c)
-					break
-				}
-			}
-		}
 	}
 
 	// Create notification for recipient
@@ -1200,81 +1167,44 @@ func (s *Server) answerCcMiv(c *gin.Context) {
 		return
 	}
 
-	// Get conversation and mivs
-	conv, err := s.storage.GetConversation(conversationID)
+	// Verify conversation exists
+	_, err := s.storage.GetConversation(conversationID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Conversation not found"})
 		return
 	}
 
-	mivs, err := s.storage.GetConversationMivs(conversationID, deskID)
-	if err != nil || len(mivs) == 0 {
+	// Get CC recipient's mivs to find the original sender
+	ccMivs, err := s.storage.GetConversationMivs(conversationID, deskID)
+	if err != nil || len(ccMivs) == 0 {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get conversation mivs"})
 		return
 	}
 
-	// Find the original sender (the one who sent the CC)
+	// Find the original sender (from the first CC miv)
 	var originalSender string
-	for _, miv := range mivs {
-		for _, cc := range miv.Cc {
-			if cc == deskID {
-				originalSender = miv.From
-				break
-			}
-		}
-		if originalSender != "" {
+	for _, miv := range ccMivs {
+		if miv.Type == models.MivTypeCC {
+			originalSender = miv.From
 			break
 		}
 	}
 
 	if originalSender == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No CC found for this desk"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No CC miv found for this desk"})
 		return
 	}
 
-	// Create a new conversation between CC recipient and original sender
-	newConv := &models.Conversation{
-		Subject: fmt.Sprintf("Re: %s", conv.Subject),
-		DeskID:  deskID,
-	}
+	// CC recipient wants to start a conversation with the original sender
+	// This becomes a regular reply in the same conversation
+	// We can redirect to the standard reply endpoint or handle inline
 
-	if err := s.storage.CreateConversation(newConv); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create conversation"})
-		return
-	}
-
-	// Create first miv in the new conversation
-	newMiv := &models.ConversationMiv{
-		ConversationID: newConv.ID,
-		SeqNo:          1,
-		From:           deskID,
-		To:             originalSender,
-		Subject:        newConv.Subject,
-		Body:           base64.StdEncoding.EncodeToString([]byte("Thank you for including me in the conversation.")), // Default response
-		State:          models.StateSENT,
-		IsEncrypted:    false,
-	}
-
-	if err := s.storage.CreateConversationMiv(newMiv); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create miv"})
-		return
-	}
-
-	// Create notification for the original sender
-	normalizedSender := crypto.NormalizeDeskID(originalSender)
-	notification := &models.Notification{
-		DeskID:         normalizedSender,
-		Type:           models.NotificationTypeNewMiv,
-		MivID:          newMiv.ID,
-		ConversationID: newConv.ID,
-		Message:        fmt.Sprintf("New conversation from CC recipient %s: %s", deskID, newConv.Subject),
-		Read:           false,
-	}
-	s.storage.CreateNotification(notification)
-
-	c.JSON(http.StatusCreated, models.GetConversationResponse{
-		Conversation: newConv,
-		Mivs:         []*models.ConversationMiv{newMiv},
+	// For now, just indicate that answering should be done via the normal reply flow
+	// The frontend should allow CC recipients to reply to the conversation
+	c.JSON(http.StatusOK, gin.H{
+		"message": "To answer a CC, use the standard reply endpoint",
+		"conversation_id": conversationID,
+		"original_sender": originalSender,
 	})
 }
 
@@ -1286,39 +1216,30 @@ func (s *Server) deleteCcMiv(c *gin.Context) {
 		return
 	}
 
-	// Get conversation and mivs
-	conv, err := s.storage.GetConversation(conversationID)
+	// Verify conversation exists
+	_, err := s.storage.GetConversation(conversationID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Conversation not found"})
 		return
 	}
 
-	mivs, err := s.storage.GetConversationMivs(conversationID, deskID)
+	// Get CC recipient's mivs and mark them as REMOVED
+	ccMivs, err := s.storage.GetConversationMivs(conversationID, deskID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get conversation mivs"})
 		return
 	}
 
-	// Find and mark CC mivs as forgotten for this desk
 	normalizedDeskID := crypto.NormalizeDeskID(deskID)
-	for _, miv := range mivs {
-		for _, cc := range miv.Cc {
-			if crypto.NormalizeDeskID(cc) == normalizedDeskID {
-				miv.IsForgotten = true
-				if err := s.storage.UpdateConversationMiv(miv); err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update miv"})
-					return
-				}
-				break
+	for _, miv := range ccMivs {
+		// Only mark CC type mivs as REMOVED (not replies they may have sent)
+		if miv.Type == models.MivTypeCC && crypto.NormalizeDeskID(miv.Owner) == normalizedDeskID {
+			miv.State = models.StateREMOVED
+			if err := s.storage.UpdateConversationMiv(miv); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update miv"})
+				return
 			}
 		}
-	}
-
-	// Archive the CC conversation for the recipient
-	conv.IsArchived = true
-	if err := s.storage.UpdateConversation(conv); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to archive conversation"})
-		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "CC removed successfully"})
@@ -1818,54 +1739,121 @@ func (s *Server) approveViaRouting(c *gin.Context) {
 		return
 	}
 
-	// Move to next recipient
-	miv.ViaIndex++
-	
-	// Reset the state to IN for the next recipient (whether via intermediary or final recipient)
-	// This ensures the MIV appears in the next person's IN basket
-	miv.State = models.StateIN
-	miv.ReadAt = nil  // Clear read timestamp so it shows as unread for next recipient
+	// Calculate next via index
+	nextViaIndex := miv.ViaIndex + 1
 	
 	// Determine next recipient
-	if miv.ViaIndex < len(miv.Via) {
+	var nextRecipient string
+	var nextArrowTo string
+	if nextViaIndex < len(miv.Via) {
 		// Forward to next via recipient
-		miv.ArrowTo = miv.Via[miv.ViaIndex]
-		nextRecipient := crypto.NormalizeDeskID(miv.ArrowTo)
-		
-		// Create notification for next via recipient
-		notification := &models.Notification{
-			DeskID:         nextRecipient,
-			Type:           models.NotificationTypeReply,
-			MivID:          miv.ID,
-			ConversationID: miv.ConversationID,
-			Message:        fmt.Sprintf("Via routing from %s: %s", deskID, miv.Subject),
-			Read:           false,
-		}
-		s.storage.CreateNotification(notification)
+		nextRecipient = crypto.NormalizeDeskID(miv.Via[nextViaIndex])
+		nextArrowTo = miv.Via[nextViaIndex]
 	} else {
 		// Reached the end of via chain, deliver to final recipient
-		miv.ArrowTo = miv.To
-		finalRecipient := crypto.NormalizeDeskID(miv.To)
-		
-		// Create notification for final recipient
-		notification := &models.Notification{
-			DeskID:         finalRecipient,
-			Type:           models.NotificationTypeNewMiv,
-			MivID:          miv.ID,
-			ConversationID: miv.ConversationID,
-			Message:        fmt.Sprintf("New message from %s: %s", miv.From, miv.Subject),
-			Read:           false,
-		}
-		s.storage.CreateNotification(notification)
+		nextRecipient = crypto.NormalizeDeskID(miv.To)
+		nextArrowTo = miv.To
 	}
 
-	// Update the miv
+	// Get all mivs in this conversation to find Alice's miv and calculate seq_no
+	allMivs, err := s.storage.GetConversationMivs(miv.ConversationID, miv.From)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get conversation mivs"})
+		return
+	}
+
+	// Update Alice's miv (the sender) to increment via_index so she knows progress
+	var aliceMiv *models.ConversationMiv
+	for _, m := range allMivs {
+		if m.Owner == crypto.NormalizeDeskID(miv.From) && m.SeqNo == miv.SeqNo {
+			aliceMiv = m
+			break
+		}
+	}
+	if aliceMiv != nil {
+		aliceMiv.ViaIndex = nextViaIndex
+		if err := s.storage.UpdateConversationMiv(aliceMiv); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update sender miv"})
+			return
+		}
+	}
+
+	// Update Joe's miv to SENT and update arrow_to (he has forwarded it)
+	// Change arrow_to to point to the next recipient so Joe no longer sees it in his basket
+	miv.State = models.StateSENT
+	miv.ArrowTo = nextArrowTo
 	if err := s.storage.UpdateConversationMiv(miv); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update miv"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Via routing approved", "miv": miv})
+	// Get the max seq_no for Bob in this conversation
+	bobMivs, _ := s.storage.GetConversationMivs(miv.ConversationID, nextRecipient)
+	maxSeqNo := 0
+	for _, m := range bobMivs {
+		if m.SeqNo > maxSeqNo {
+			maxSeqNo = m.SeqNo
+		}
+	}
+
+	// Determine the type for the new recipient
+	// If they are a via intermediary (not the final recipient), mark as VIA
+	newMivType := models.MivTypeMiv
+	if nextViaIndex < len(miv.Via) {
+		// Still in via chain, this is an intermediary
+		newMivType = models.MivTypeVia
+	}
+
+	// Create a NEW miv for Bob (copy of Joe's miv with updated owner and state)
+	newMiv := &models.ConversationMiv{
+		ConversationID: miv.ConversationID,
+		Owner:          nextRecipient,
+		SeqNo:          maxSeqNo + 1,
+		From:           miv.From,
+		To:             miv.To,
+		Cc:             miv.Cc,
+		ArrowTo:        nextArrowTo,
+		Type:           newMivType, // VIA if intermediary, MIV if final recipient
+		Subject:        miv.Subject,
+		Body:           miv.Body,
+		State:          models.StateIN, // Bob sees it in his IN basket
+		IsEncrypted:    miv.IsEncrypted,
+		IsAck:          miv.IsAck, // CRITICAL: Preserve ACK flag when forwarding
+		FontFamily:     miv.FontFamily,
+		FontSize:       miv.FontSize,
+		LineHeight:     miv.LineHeight,
+		Via:            miv.Via,
+		ViaIndex:       nextViaIndex,
+		IsViaRejected:  false,
+	}
+
+	if err := s.storage.CreateConversationMiv(newMiv); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create miv for next recipient"})
+		return
+	}
+
+	// Create notification for next recipient
+	var notificationType models.NotificationType
+	var notificationMessage string
+	if nextViaIndex < len(miv.Via) {
+		notificationType = models.NotificationTypeReply
+		notificationMessage = fmt.Sprintf("Via routing from %s: %s", deskID, miv.Subject)
+	} else {
+		notificationType = models.NotificationTypeNewMiv
+		notificationMessage = fmt.Sprintf("New message from %s: %s", miv.From, miv.Subject)
+	}
+	
+	notification := &models.Notification{
+		DeskID:         nextRecipient,
+		Type:           notificationType,
+		MivID:          newMiv.ID,
+		ConversationID: miv.ConversationID,
+		Message:        notificationMessage,
+		Read:           false,
+	}
+	s.storage.CreateNotification(notification)
+
+	c.JSON(http.StatusOK, gin.H{"message": "Via routing approved", "miv": newMiv})
 }
 
 func (s *Server) rejectViaRouting(c *gin.Context) {
@@ -1914,38 +1902,90 @@ func (s *Server) rejectViaRouting(c *gin.Context) {
 	// Create a rejection message body
 	rejectionBody := fmt.Sprintf("<p><strong>Via Routing Rejected</strong></p><p>Your message was rejected by %s during via routing.</p><p><strong>Reason:</strong> %s</p><p><strong>Original Subject:</strong> %s</p>", deskID, req.Reason, miv.Subject)
 
-	// Create a new MIV in the conversation as a rejection notice
-	// This will arrive in the sender's IN basket like a normal reply
-	rejectionMiv := &models.ConversationMiv{
+	// Get next sequence number for sender
+	senderMivs, err := s.storage.GetConversationMivs(miv.ConversationID, miv.From)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get sender mivs"})
+		return
+	}
+	senderNextSeqNo := len(senderMivs) + 1
+
+	// Create rejector's SENT copy (like a normal reply)
+	rejectorMiv := &models.ConversationMiv{
 		ConversationID: miv.ConversationID,
+		Owner:          deskID,           // Rejector owns this copy
 		SeqNo:          nextSeqNo,
 		From:           deskID,           // From the person who rejected
 		To:             miv.From,         // To the original sender
-		ArrowTo:        miv.From,         // Deliver to sender
-		Type:           "MIV",
+		ArrowTo:        deskID,           // Arrow points to rejector for SENT basket
+		Type:           models.MivTypeMiv,
 		Subject:        fmt.Sprintf("REJECTED: %s", miv.Subject),
 		Body:           base64.StdEncoding.EncodeToString([]byte(rejectionBody)),
-		State:          models.StateIN,   // Will arrive in sender's IN basket
+		State:          models.StateSENT, // Rejector sees it in SENT basket
 		IsEncrypted:    false,
-		IsAck:          true,             // Mark as ACK-like so it doesn't show in rejector's OUT basket
+		IsAck:          true,             // Set as ACK - allows deletion without reply
 		FontFamily:     miv.FontFamily,
 		FontSize:       miv.FontSize,
 		LineHeight:     miv.LineHeight,
 		Via:            []string{},       // No via routing on the rejection
 		ViaIndex:       0,
 		IsViaRejected:  false,
-		RejectedMivID:  miv.ID,          // Store reference to original MIV for resubmit
+		RejectedMivID:  miv.ID,          // Store reference to original MIV
 	}
 
-	if err := s.storage.CreateConversationMiv(rejectionMiv); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create rejection miv"})
+	if err := s.storage.CreateConversationMiv(rejectorMiv); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create rejector miv"})
 		return
 	}
 
-	// Mark the original miv as forgotten so it doesn't show up in anyone's baskets anymore
-	miv.IsForgotten = true
-	if err := s.storage.UpdateConversationMiv(miv); err != nil {
-		log.Printf("ERROR: Failed to mark original miv as forgotten: %v", err)
+	// Create sender's IN copy (they receive the rejection)
+	senderRejectionMiv := &models.ConversationMiv{
+		ConversationID: miv.ConversationID,
+		Owner:          miv.From,         // Sender owns this copy
+		SeqNo:          senderNextSeqNo,
+		From:           deskID,           // From the person who rejected
+		To:             miv.From,         // To the original sender
+		ArrowTo:        miv.From,         // Arrow points to sender
+		Type:           models.MivTypeMiv,
+		Subject:        fmt.Sprintf("REJECTED: %s", miv.Subject),
+		Body:           base64.StdEncoding.EncodeToString([]byte(rejectionBody)),
+		State:          models.StateIN,   // Sender sees it in IN basket
+		IsEncrypted:    false,
+		IsAck:          true,             // Set as ACK - sender can delete or reply
+		FontFamily:     miv.FontFamily,
+		FontSize:       miv.FontSize,
+		LineHeight:     miv.LineHeight,
+		Via:            []string{},       // No via routing on the rejection
+		ViaIndex:       0,
+		IsViaRejected:  false,
+		RejectedMivID:  miv.ID,          // Store reference to original MIV
+	}
+
+	if err := s.storage.CreateConversationMiv(senderRejectionMiv); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create sender rejection miv"})
+		return
+	}
+
+	// Mark Joe's VIA miv as SENT (he has responded by rejecting)
+	// Also mark Alice's original miv as forgotten so it doesn't clutter her SENT basket
+	// Get all mivs in this conversation
+	allMivs, _ := s.storage.GetConversationMivs(miv.ConversationID, "")
+	for _, m := range allMivs {
+		// Update Joe's VIA miv to SENT state
+		if m.Owner == deskID && m.ID == mivID {
+			m.State = models.StateSENT
+			m.IsForgotten = true // Hide it since he's responded
+			if err := s.storage.UpdateConversationMiv(m); err != nil {
+				log.Printf("ERROR: Failed to update rejector's miv: %v", err)
+			}
+		}
+		// Mark Alice's original SENT miv as forgotten (replaced by new exchange)
+		if m.Owner == miv.From && m.SeqNo == miv.SeqNo && m.State == models.StateSENT {
+			m.IsForgotten = true
+			if err := s.storage.UpdateConversationMiv(m); err != nil {
+				log.Printf("ERROR: Failed to mark sender's original miv as forgotten: %v", err)
+			}
+		}
 	}
 
 	// Create notification for sender about rejection
@@ -1955,15 +1995,14 @@ func (s *Server) rejectViaRouting(c *gin.Context) {
 	notification := &models.Notification{
 		DeskID:         normalizedSender,
 		Type:           models.NotificationTypeReply,
-		MivID:          rejectionMiv.ID,
+		MivID:          senderRejectionMiv.ID,
 		ConversationID: miv.ConversationID,
 		Message:        message,
 		Read:           false,
 	}
 	s.storage.CreateNotification(notification)
 
-	// Send rejection notices to all CC recipients
-	// Each CC recipient gets a copy in their own CC conversation
+	// Send rejection notices to all CC recipients in the SAME conversation
 	if len(miv.Cc) > 0 {
 		log.Printf("DEBUG: Sending rejection notices to %d CC recipients", len(miv.Cc))
 		
@@ -1974,85 +2013,58 @@ func (s *Server) rejectViaRouting(c *gin.Context) {
 			
 			normalizedCc := crypto.NormalizeDeskID(ccRecipient)
 			
-			// Find the CC conversation for this recipient
-			conv, err := s.storage.GetConversation(miv.ConversationID)
+			// Get existing mivs for CC recipient to determine next SeqNo
+			ccMivs, err := s.storage.GetConversationMivs(miv.ConversationID, ccRecipient)
 			if err != nil {
-				log.Printf("ERROR: Failed to get conversation for CC rejection: %v", err)
+				log.Printf("ERROR: Failed to get mivs for CC recipient %s: %v", ccRecipient, err)
 				continue
 			}
 			
-			ccSubject := fmt.Sprintf("CC: %s", conv.Subject)
+			ccNextSeqNo := len(ccMivs) + 1
 			
-			// Get all conversations for this CC recipient to find their CC conversation
-			ccConvs, err := s.storage.ListConversationsByDesk(ccRecipient)
-			if err != nil {
-				log.Printf("ERROR: Failed to get conversations for CC recipient %s: %v", ccRecipient, err)
+			// Create CC copy of the rejection notice in the SAME conversation
+			ccRejectionMiv := &models.ConversationMiv{
+				ConversationID: miv.ConversationID, // SAME conversation
+				Owner:          ccRecipient, // CC recipient owns their copy
+				SeqNo:          ccNextSeqNo,
+				From:           deskID,
+				To:             miv.From,
+				Cc:             miv.Cc,
+				ArrowTo:        ccRecipient,
+				Type:           models.MivTypeCC,
+				Subject:        fmt.Sprintf("REJECTED: %s", miv.Subject),
+				Body:           base64.StdEncoding.EncodeToString([]byte(rejectionBody)),
+				State:          models.StateIN, // CC mivs use IN state
+				IsEncrypted:    false,
+				IsAck:          true, // CC recipients can delete or view
+				FontFamily:     miv.FontFamily,
+				FontSize:       miv.FontSize,
+				LineHeight:     miv.LineHeight,
+				Via:            miv.Via,
+				ViaIndex:       miv.ViaIndex,
+				IsViaRejected:  true, // Mark as rejected for display
+				RejectedMivID:  miv.ID,
+			}
+			
+			if err := s.storage.CreateConversationMiv(ccRejectionMiv); err != nil {
+				log.Printf("ERROR: Failed to create CC rejection miv: %v", err)
 				continue
 			}
 			
-			var ccConv *models.Conversation
-			for _, c := range ccConvs {
-				if c.Subject == ccSubject && c.DeskID == ccRecipient {
-					ccConv = c
-					break
-				}
-			}
+			log.Printf("DEBUG: Created CC rejection miv %s for recipient %s", ccRejectionMiv.ID, ccRecipient)
 			
-			if ccConv != nil {
-				// Get existing mivs in CC conversation to determine next SeqNo
-				ccMivs, err := s.storage.GetConversationMivs(ccConv.ID, ccRecipient)
-				if err != nil {
-					log.Printf("ERROR: Failed to get mivs for CC conversation %s: %v", ccConv.ID, err)
-					continue
-				}
-				
-				ccNextSeqNo := len(ccMivs) + 1
-				
-				// Create CC copy of the rejection notice
-				ccRejectionMiv := &models.ConversationMiv{
-					ConversationID: ccConv.ID,
-					SeqNo:          ccNextSeqNo,
-					From:           deskID,
-					To:             miv.From,
-					Cc:             miv.Cc,
-					ArrowTo:        ccRecipient,
-					Type:           models.MivTypeCC,
-					Subject:        fmt.Sprintf("REJECTED: %s", conv.Subject),
-					Body:           base64.StdEncoding.EncodeToString([]byte(rejectionBody)),
-					State:          models.StateCC,
-					IsEncrypted:    false,
-					IsAck:          false, // CC recipients see it as a regular message
-					FontFamily:     miv.FontFamily,
-					FontSize:       miv.FontSize,
-					LineHeight:     miv.LineHeight,
-					Via:            miv.Via,
-					ViaIndex:       miv.ViaIndex,
-					IsViaRejected:  false,
-					RejectedMivID:  miv.ID,
-				}
-				
-				if err := s.storage.CreateConversationMiv(ccRejectionMiv); err != nil {
-					log.Printf("ERROR: Failed to create CC rejection miv: %v", err)
-					continue
-				}
-				
-				log.Printf("DEBUG: Created CC rejection miv %s for recipient %s", ccRejectionMiv.ID, ccRecipient)
-				
-				// Create notification for CC recipient
-				ccNotification := &models.Notification{
-					DeskID:         normalizedCc,
-					Type:           models.NotificationTypeReply,
-					MivID:          ccRejectionMiv.ID,
-					ConversationID: ccConv.ID,
-					Message:        fmt.Sprintf("CC: Via routing rejected by %s: %s", deskID, conv.Subject),
-					Read:           false,
-				}
-				s.storage.CreateNotification(ccNotification)
-			} else {
-				log.Printf("DEBUG: No CC conversation found for recipient %s with subject %s", ccRecipient, ccSubject)
+			// Create notification for CC recipient
+			ccNotification := &models.Notification{
+				DeskID:         normalizedCc,
+				Type:           models.NotificationTypeReply,
+				MivID:          ccRejectionMiv.ID,
+				ConversationID: miv.ConversationID, // SAME conversation
+				Message:        fmt.Sprintf("CC: Via routing rejected by %s: %s", deskID, miv.Subject),
+				Read:           false,
 			}
+			s.storage.CreateNotification(ccNotification)
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Via routing rejected", "miv": rejectionMiv})
+	c.JSON(http.StatusOK, gin.H{"message": "Via routing rejected", "miv": senderRejectionMiv})
 }

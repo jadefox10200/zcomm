@@ -138,7 +138,7 @@ export interface ConversationMiv {
   to: string;
   cc?: string[];
   arrow_to: string;
-  type: "MIV" | "CC" | "MEMO";
+  type: "MIV" | "CC" | "VIA" | "MEMO";
   subject: string;
   body: string;
   state: MivState;
