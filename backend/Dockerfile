@@ -10,19 +10,19 @@ RUN go mod download
 
 COPY . .
 
-# Enable cgo for building with sqlite3 support
+# Enable CGO for go-sqlite3
 ENV CGO_ENABLED=1
 
 RUN go build -o zcomm .
 
+# Final image
 FROM alpine
 
 WORKDIR /app
 
-# Your runtime will need libc and libsqlite3
+# Add runtime sqlite libs
 RUN apk add --no-cache sqlite-libs
 
 COPY --from=builder /app/zcomm .
-COPY --from=builder /app/someotherfiles .
 
 CMD ["./zcomm"]
