@@ -1,27 +1,28 @@
-FROM golang:1.24-alpine AS builder
+FROM golang:1.21-alpine AS builder
 
 WORKDIR /app
 
-# Copy go mod files
+# Install build dependencies for cgo + sqlite
+RUN apk add --no-cache build-base sqlite-dev
+
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy source code
 COPY . .
 
-# Build the application as 'zcomm'
-RUN CGO_ENABLED=0 GOOS=linux go build -o zcomm .
+# Enable cgo for building with sqlite3 support
+ENV CGO_ENABLED=1
 
-# Final stage
-FROM alpine:latest
+RUN go build -o zcomm .
 
-RUN apk --no-cache add ca-certificates
+FROM alpine
 
-WORKDIR /root/
+WORKDIR /app
 
-# Copy the binary from builder
+# Your runtime will need libc and libsqlite3
+RUN apk add --no-cache sqlite-libs
+
 COPY --from=builder /app/zcomm .
-
-EXPOSE 8080
+COPY --from=builder /app/someotherfiles .
 
 CMD ["./zcomm"]
