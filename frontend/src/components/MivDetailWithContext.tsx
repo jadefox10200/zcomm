@@ -122,7 +122,6 @@ function MivDetailWithContext({
         return;
       }
 
-      console.log("🔓 Decrypting message:", selectedMiv.id);
       setIsDecrypting(true);
       setDecryptionError(null);
 
@@ -133,13 +132,11 @@ function MivDetailWithContext({
         );
 
         // Get current user's private key
-        console.log("🔑 Looking for private key for desk:", currentDeskId);
+
         const myPrivateKey = getPrivateKey(currentDeskId);
         if (!myPrivateKey) {
-          console.error("❌ Private key not found for desk:", currentDeskId);
           throw new Error("Private key not found. Please log in again.");
         }
-        console.log("✓ Private key found for desk:", currentDeskId);
 
         // Determine who encrypted this message for the current recipient
         // For via routing: the previous person in the chain encrypted it
@@ -155,59 +152,31 @@ function MivDetailWithContext({
             // Current user is not the first via recipient
             // Message was encrypted by the previous via recipient
             encryptorId = selectedMiv.via[myPosition - 1];
-            console.log(
-              `📨 Via routing: message encrypted by previous recipient (via[${
-                myPosition - 1
-              }]):`,
-              encryptorId
-            );
           } else if (myPosition === -1 && currentDeskId === selectedMiv.to) {
             // Current user is the final recipient (not in via chain)
             // Message was encrypted by the last via recipient
             encryptorId = selectedMiv.via[selectedMiv.via.length - 1];
-            console.log(
-              "� Final recipient: message encrypted by last via recipient:",
-              encryptorId
-            );
           } else {
             // Current user is the first via recipient
             // Message was encrypted by the original sender
-            console.log(
-              "📨 First via recipient: message encrypted by sender:",
-              encryptorId
-            );
           }
-        } else {
-          console.log("📨 Direct message: encrypted by sender:", encryptorId);
         }
 
-        console.log("🔍 Fetching encryptor's public key:", encryptorId);
         const encryptorPublicKeyResponse = await api.getDeskPublicKey(
           encryptorId
         );
         const encryptorPublicKey = encryptorPublicKeyResponse.public_key;
-        console.log("✓ Encryptor's public key retrieved");
 
         // For NaCl box decryption:
         // Message was encrypted with: box(message, nonce, myPublicKey, encryptorPrivateKey)
         // Decrypt with: box.open(encrypted, nonce, encryptorPublicKey, myPrivateKey)
-        console.log("🔐 Decryption parameters:", {
-          encryptedBodyLength: selectedMiv.body.length,
-          encryptorPublicKeyLength: encryptorPublicKey.length,
-          myPrivateKeyLength: myPrivateKey.length,
-          from: selectedMiv.from,
-          to: selectedMiv.to,
-          currentDesk: currentDeskId,
-          encryptor: encryptorId,
-          isSentMessage: selectedMiv.from === currentDeskId,
-        });
+        // ..
         const decrypted = decrypt(
           selectedMiv.body,
           encryptorPublicKey,
           myPrivateKey
         );
         setDecryptedBody(decrypted);
-        console.log("✅ Message decrypted successfully");
       } catch (error) {
         console.error("❌ Decryption failed:", error);
         setDecryptionError(
@@ -435,8 +404,6 @@ function MivDetailWithContext({
         nextRecipient = selectedMiv.to;
       }
 
-      console.log("🔄 Re-encrypting for next recipient:", nextRecipient);
-
       // Use the already decrypted body from state
       if (!decryptedBody) {
         throw new Error("Message must be decrypted before forwarding");
@@ -452,8 +419,6 @@ function MivDetailWithContext({
         nextPublicKey,
         myPrivateKey
       );
-
-      console.log("✓ Message re-encrypted for next recipient");
 
       // Approve with the re-encrypted body
       await api.approveViaRouting(
@@ -572,8 +537,6 @@ function MivDetailWithContext({
       if (onForget) {
         onForget();
       }
-      // Optionally show success message
-      console.log("CC message removed successfully");
     } catch (err) {
       console.error("Failed to remove CC miv:", err);
       alert("Failed to remove message. Please try again.");

@@ -2,19 +2,42 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import "semantic-ui-css/semantic.min.css";
 import "./index.css";
+
 import App from "./App";
-import reportWebVitals from "./reportWebVitals";
+import LandingPage from "./LandingPage";
+
+import * as serviceWorkerRegistration from "./serviceWorkerRegistration";
 
 const root = ReactDOM.createRoot(
   document.getElementById("root") as HTMLElement
 );
+
+function RootSwitcher() {
+  const [showApp, setShowApp] = React.useState(() => {
+    // If user is already logged in, show App
+    const token = localStorage.getItem("token");
+    return !!token;
+  });
+
+  React.useEffect(() => {
+    // Listen for login events (App should set token in localStorage)
+    const onStorage = () => {
+      if (localStorage.getItem("token")) setShowApp(true);
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
+  if (showApp) return <App />;
+  return <LandingPage onLoginClick={() => setShowApp(true)} />;
+}
+
+
 root.render(
   <React.StrictMode>
-    <App />
+    <RootSwitcher />
   </React.StrictMode>
 );
 
-// If you want to start measuring performance in your app, pass a function
-// to log results (for example: reportWebVitals(console.log))
-// or send to an analytics endpoint. Learn more: https://bit.ly/CRA-vitals
-reportWebVitals();
+// Register service worker for PWA support
+serviceWorkerRegistration.register();

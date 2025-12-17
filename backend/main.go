@@ -9,8 +9,9 @@ import (
 func main() {
 	server := api.NewServer()
 
-	log.Println("Starting Missiv backend server on :8080")
-	if err := server.Run(":8080"); err != nil {
+	// For HTTPS, use port 8443 and cert/key files (see HTTPS_DEPLOYMENT.md)
+	log.Println("Starting Missiv backend server on :8443 (HTTPS)")
+	if err := server.RunTLS(":8443", "server.crt", "server.key"); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }

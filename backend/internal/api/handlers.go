@@ -1,3 +1,4 @@
+
 package api
 
 import (
@@ -21,7 +22,8 @@ import (
 	"github.com/jadefox10200/missiv/backend/internal/models"
 )
 
-// Upload handler constants
+// In-memory token store for mapping tokens to account IDs (for demo/prototype only)
+var tokenStore = make(map[string]string)
 const (
 	maxFileSize         = 10 * 1024 * 1024 // 10MB
 	maxFileExtLength    = 10               // Maximum length for file extension
@@ -130,6 +132,8 @@ func (s *Server) registerAccount(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
 	}
+	// Store token -> account ID
+	tokenStore[token] = account.ID
 
 	c.JSON(http.StatusCreated, models.LoginResponse{
 		Account: account,
@@ -168,6 +172,8 @@ func (s *Server) loginAccount(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
 	}
+	// Store token -> account ID
+	tokenStore[token] = account.ID
 
 	// Get encrypted private keys for all desks
 	encryptedPrivKeys := make(map[string]string)
@@ -369,9 +375,16 @@ func (s *Server) updateDesk(c *gin.Context) {
 		return
 	}
 
-	var req models.UpdateDeskRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	// --- AUTHORIZATION: Extract token and check desk ownership ---
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Missing or invalid Authorization header"})
+		return
+	}
+	token := strings.TrimPrefix(authHeader, "Bearer ")
+	accountID, ok := tokenStore[token]
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
 		return
 	}
 
@@ -381,9 +394,16 @@ func (s *Server) updateDesk(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Desk not found"})
 		return
 	}
+	if desk.AccountID != accountID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You do not own this desk"})
+		return
+	}
 
-	// TODO: Add authorization check to verify user owns this desk
-	// This requires implementing proper authentication middleware
+	var req models.UpdateDeskRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	// Update fields if provided
 	if req.Name != nil {

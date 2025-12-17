@@ -62,11 +62,6 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
   });
   const errorRef = useRef<HTMLDivElement>(null);
 
-  // Debug: Log when desk line_height changes
-  useEffect(() => {
-    console.log("ComposeMiv: desk.line_height updated to:", desk?.line_height);
-  }, [desk?.line_height]);
-
   // Scroll to error message when error occurs
   useEffect(() => {
     if (error && errorRef.current) {
@@ -339,7 +334,7 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
       setShowAddContactForm(false);
     } catch (err) {
       console.error("Failed to add contact:", err);
-      alert("Failed to add contact. Please try again.");
+      // TODO: Replace with user-friendly UI notification
     }
   };
 
@@ -442,55 +437,22 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
     try {
       // Get sender's private key for encryption
       const { getPrivateKey, encryptMessage } = await import("../utils/crypto");
-
-      console.log("🔑 Looking for private key for desk:", deskId);
       const senderPrivateKey = getPrivateKey(deskId);
-
       if (!senderPrivateKey) {
-        console.error("❌ Private key not found for desk:", deskId);
-        console.log(
-          "📋 Available private keys in sessionStorage:",
-          Object.keys(sessionStorage).filter((k) => k.startsWith("privateKey_"))
-        );
         throw new Error("Private key not found. Please log in again.");
       }
-
-      console.log("✓ Private key found for desk:", deskId);
-
       // Fetch sender's public key (for encrypting their own copy)
       const senderPublicKeyResponse = await api.getDeskPublicKey(deskId);
       const senderPublicKey = senderPublicKeyResponse.public_key;
-      console.log(
-        "📤 Sender public key:",
-        senderPublicKey.substring(0, 20) + "..."
-      );
-
       // Determine the actual first recipient (via routing or direct)
       // If via routing exists, encrypt for the first via recipient
       // Otherwise, encrypt for the final recipient
       const actualRecipient = via && via.length > 0 ? via[0] : to;
-      console.log(
-        "🎯 Actual first recipient:",
-        actualRecipient,
-        via && via.length > 0 ? "(via routing)" : "(direct)"
-      );
-
       // Fetch recipient's public key (first via recipient or final recipient)
       const recipientPublicKeyResponse = await api.getDeskPublicKey(
         actualRecipient
       );
       const recipientPublicKey = recipientPublicKeyResponse.public_key;
-      console.log(
-        "📥 Recipient public key:",
-        recipientPublicKey.substring(0, 20) + "..."
-      );
-
-      console.log("🔑 Keys comparison:", {
-        senderPubKey: senderPublicKey.substring(0, 20),
-        recipientPubKey: recipientPublicKey.substring(0, 20),
-        areKeysIdentical: senderPublicKey === recipientPublicKey,
-      });
-
       // Encrypt TWO copies:
       // 1. Sender's copy: encrypted with sender's keys (sender can decrypt)
       const senderEncryptedBody = encryptMessage(
@@ -509,62 +471,22 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
         recipientPublicKey,
         senderPrivateKey
       );
-      console.log(
-        "✓ Recipient copy encrypted:",
-        recipientEncryptedBody.substring(0, 40) + "..."
-      );
-
-      console.log("🔒 Encryption comparison:", {
-        senderBodyPrefix: senderEncryptedBody.substring(0, 40),
-        recipientBodyPrefix: recipientEncryptedBody.substring(0, 40),
-        areBodiesIdentical: senderEncryptedBody === recipientEncryptedBody,
-      });
-
       // 3. Encrypt bodies for each CC recipient with their own public keys
       const ccBodies: { [deskId: string]: string } = {};
       if (cc && cc.length > 0) {
-        console.log("🔑 Starting CC encryption for recipients:", cc);
         for (const ccDeskId of cc) {
           if (ccDeskId) {
-            console.log(`🔍 Fetching public key for CC recipient: ${ccDeskId}`);
             const ccPublicKeyResponse = await api.getDeskPublicKey(ccDeskId);
             const ccPublicKey = ccPublicKeyResponse.public_key;
-            console.log(
-              `🔑 CC ${ccDeskId} public key:`,
-              ccPublicKey.substring(0, 20) + "..."
-            );
-            console.log(
-              `🔑 Recipient public key:`,
-              recipientPublicKey.substring(0, 20) + "..."
-            );
-            console.log(
-              `🔑 Keys are ${
-                ccPublicKey === recipientPublicKey
-                  ? "IDENTICAL ❌"
-                  : "DIFFERENT ✓"
-              }`
-            );
-
             const ccEncryptedBody = encryptMessage(
               body,
               ccPublicKey,
               senderPrivateKey
             );
             ccBodies[ccDeskId] = ccEncryptedBody;
-            console.log(
-              `✓ CC copy encrypted for ${ccDeskId}:`,
-              ccEncryptedBody.substring(0, 40) + "..."
-            );
-            console.log(
-              `📊 CC body === recipient body: ${
-                ccEncryptedBody === recipientEncryptedBody ? "YES ❌" : "NO ✓"
-              }`
-            );
           }
         }
-        console.log("🎯 Final ccBodies map:", Object.keys(ccBodies));
       }
-
       const requestData = {
         to,
         cc: cc || undefined,
@@ -577,25 +499,7 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
         font_size: desk.font_size,
         line_height: desk.line_height,
       };
-
-      console.log("📤 Sending request with cc_bodies:", {
-        hasCcBodies: !!requestData.cc_bodies,
-        ccBodyKeys: requestData.cc_bodies
-          ? Object.keys(requestData.cc_bodies)
-          : [],
-        ccBodyPreviews: requestData.cc_bodies
-          ? Object.entries(requestData.cc_bodies).map(([k, v]) => ({
-              deskId: k,
-              bodyPrefix: v.substring(0, 40) + "...",
-            }))
-          : [],
-      });
       await onSend(requestData);
-      console.log("DEBUG: After send - desk settings were:", {
-        font_family: desk.font_family,
-        font_size: desk.font_size,
-        line_height: desk.line_height,
-      });
       // Reset form on success
       setTo("");
       setCc([]);

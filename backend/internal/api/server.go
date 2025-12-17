@@ -205,8 +205,15 @@ func (s *Server) setupRoutes() {
 }
 
 // Run starts the API server
+// Run starts the API server (HTTP)
 func (s *Server) Run(addr string) error {
 	return s.router.Run(addr)
+}
+
+// RunTLS starts the API server with HTTPS
+func (s *Server) RunTLS(addr, certFile, keyFile string) error {
+	return s.router.RunTLS(addr, certFile, keyFile)
+}
 }
 
 // Identity handlers

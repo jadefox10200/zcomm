@@ -282,10 +282,7 @@ function App() {
         "./utils/crypto"
       );
 
-      console.log(
-        "🔐 Decrypting private keys for desks:",
-        Object.keys(response.encrypted_priv_keys)
-      );
+      // ...removed debug log...
 
       for (const [deskId, encryptedKey] of Object.entries(
         response.encrypted_priv_keys
@@ -293,7 +290,7 @@ function App() {
         try {
           const decryptedKey = decryptPrivateKey(encryptedKey, password);
           storePrivateKey(deskId, decryptedKey);
-          console.log(`✓ Private key decrypted and stored for desk: ${deskId}`);
+          // ...removed debug log...
         } catch (err) {
           console.error(
             `❌ Failed to decrypt private key for desk ${deskId}:`,
@@ -328,7 +325,7 @@ function App() {
       }
     }
     keysToRemove.forEach((key) => sessionStorage.removeItem(key));
-    console.log("🔐 Cleared", keysToRemove.length, "private keys from memory");
+    // ...removed debug log...
 
     // Clear desk state
     setDesks([]);
@@ -506,20 +503,10 @@ function App() {
           // Current user is not the first via recipient
           // Reply to the previous via recipient who forwarded to me
           recipientId = selectedMiv.via[myPosition - 1];
-          console.log(
-            `📨 Reply via routing: replying to previous via recipient (via[${
-              myPosition - 1
-            }]):`,
-            recipientId
-          );
         } else if (myPosition === -1 && activeDesk.id === selectedMiv.to) {
           // Current user is the final recipient (not in via chain)
           // Reply to the last via recipient who forwarded to me
           recipientId = selectedMiv.via[selectedMiv.via.length - 1];
-          console.log(
-            "📨 Reply as final recipient: replying to last via recipient:",
-            recipientId
-          );
         } else {
           // Current user is the first via recipient
           // Reply to the original sender
@@ -527,10 +514,6 @@ function App() {
             selectedMiv.from === activeDesk.id
               ? selectedMiv.to
               : selectedMiv.from;
-          console.log(
-            "📨 Reply as first via recipient: replying to sender:",
-            recipientId
-          );
         }
       } else {
         // Direct message, no via routing
@@ -538,7 +521,6 @@ function App() {
           selectedMiv.from === activeDesk.id
             ? selectedMiv.to
             : selectedMiv.from;
-        console.log("📨 Direct reply: replying to", recipientId);
       }
 
       // Fetch sender's public key (for encrypting their own copy)

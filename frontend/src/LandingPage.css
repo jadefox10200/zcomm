@@ -1,0 +1,101 @@
+
+body, .landing-page {
+  min-height: 100vh;
+  background: #fff;
+  color: #000;
+  font-family: Arial, Tahoma, -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+}
+
+.landing-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: #fff;
+}
+
+.landing-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem 2rem 1rem 2rem;
+  background: #000;
+  border-bottom: 1px solid #e0e0e0;
+}
+.landing-logo {
+  font-size: 2rem;
+  font-weight: bold;
+  color: #fff;
+  letter-spacing: 2px;
+  font-family: Helvetica, Arial, sans-serif;
+}
+.landing-login-btn {
+  background: #fff;
+  color: #000;
+  padding: 0.6rem 1.5rem;
+  border-radius: 6px;
+  text-decoration: none;
+  font-weight: 600;
+  border: 1px solid #000;
+  font-family: Helvetica, Arial, sans-serif;
+  transition: background 0.2s, color 0.2s;
+  cursor: pointer;
+}
+.landing-login-btn:hover {
+  background: #000;
+  color: #fff;
+}
+.landing-main {
+  flex: 1;
+  max-width: 600px;
+  margin: 2.5rem auto 0 auto;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 16px rgba(44,62,80,0.07);
+  padding: 2.5rem 2rem 2rem 2rem;
+  text-align: center;
+}
+.landing-main h1 {
+  font-size: 2.2rem;
+  color: #000;
+  margin-bottom: 1.2rem;
+  font-family: Helvetica, Arial, sans-serif;
+}
+.landing-main p {
+  color: #222;
+  font-size: 1.1rem;
+  margin-bottom: 2rem;
+}
+.landing-goals {
+  text-align: left;
+  margin: 0 auto 2rem auto;
+  max-width: 400px;
+  color: #000;
+  font-size: 1rem;
+  padding-left: 1.2rem;
+}
+.landing-goals li {
+  margin-bottom: 0.7rem;
+}
+.landing-pwa {
+  margin-top: 2.5rem;
+  background: #f5f5f5;
+  border-radius: 8px;
+  padding: 1.2rem 1rem;
+}
+.landing-pwa h2 {
+  color: #000;
+  font-size: 1.1rem;
+  margin-bottom: 0.5rem;
+}
+.landing-pwa-link {
+  color: #000;
+  text-decoration: underline;
+  font-weight: 600;
+}
+.landing-footer {
+  text-align: center;
+  color: #222;
+  font-size: 0.95rem;
+  padding: 1.2rem 0 0.7rem 0;
+  background: none;
+}

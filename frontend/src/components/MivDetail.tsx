@@ -56,7 +56,7 @@ const MivDetail: React.FC<MivDetailProps> = ({
           recipientPrivateKey
         );
         setDecryptedBody(decrypted);
-        console.log("✓ Message decrypted successfully");
+        
       } catch (error) {
         console.error("Decryption failed:", error);
         setDecryptionError(
