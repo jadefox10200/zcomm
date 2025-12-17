@@ -314,7 +314,8 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
 
   const handleAddContact = async (e: React.FormEvent) => {
     e.preventDefault();
-
+    setFieldErrors({});
+    setError(null);
     try {
       await api.createContact(deskId, newContactForm);
 
@@ -332,9 +333,26 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
         notes: "",
       });
       setShowAddContactForm(false);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to add contact:", err);
-      // TODO: Replace with user-friendly UI notification
+      setError("Failed to add contact. Please check the form and try again.");
+      // Optionally, set field errors if you can parse them from err
+      if (
+        err &&
+        err.response &&
+        err.response.data &&
+        err.response.data.errors
+      ) {
+        const apiFieldErrors = err.response.data.errors;
+        const newFieldErrors: any = {};
+        if (apiFieldErrors.name) newFieldErrors.name = true;
+        if (apiFieldErrors.desk_id_ref) newFieldErrors.desk_id_ref = true;
+        if (apiFieldErrors.first_name) newFieldErrors.first_name = true;
+        if (apiFieldErrors.last_name) newFieldErrors.last_name = true;
+        if (apiFieldErrors.greeting_name) newFieldErrors.greeting_name = true;
+        if (apiFieldErrors.notes) newFieldErrors.notes = true;
+        setFieldErrors(newFieldErrors);
+      }
     }
   };
 

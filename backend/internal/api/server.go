@@ -92,11 +92,11 @@ func NewServer() *Server {
 	s.setupRoutes()
 	
 	// Load test users for development
-	if err := s.loadTestUsers(); err != nil {
+	// if err := s.loadTestUsers(); err != nil {
 		// Just log the error, don't fail server startup
 		// This allows the server to continue even if test users fail to load
-		println("Warning: Failed to load test users:", err.Error())
-	}
+		// println("Warning: Failed to load test users:", err.Error())
+	// }
 	
 	return s
 }
@@ -213,7 +213,6 @@ func (s *Server) Run(addr string) error {
 // RunTLS starts the API server with HTTPS
 func (s *Server) RunTLS(addr, certFile, keyFile string) error {
 	return s.router.RunTLS(addr, certFile, keyFile)
-}
 }
 
 // Identity handlers
