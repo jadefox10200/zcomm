@@ -56,8 +56,9 @@ type LoginRequest struct {
 
 // LoginResponse represents a successful login response
 type LoginResponse struct {
-	Account *Account `json:"account"`
-	Token   string   `json:"token"` // JWT token for authentication
+	Account           *Account          `json:"account"`
+	Token             string            `json:"token"`              // JWT token for authentication
+	EncryptedPrivKeys map[string]string `json:"encrypted_priv_keys"` // Desk ID -> Encrypted private key (base64)
 }
 
 // CreateDeskRequest represents a request to create a new desk

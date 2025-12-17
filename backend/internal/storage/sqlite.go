@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jadefox10200/missiv/backend/internal/crypto"
 	"github.com/jadefox10200/missiv/backend/internal/models"
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -249,8 +250,11 @@ func (s *SQLiteStorage) CreateDesk(desk *models.Desk, privateKey [32]byte) error
 		desk.CreatedAt = time.Now()
 	}
 
+	// Private key will be stored as-is (raw bytes) for now
+	// In a production system, this should be encrypted with the user's password
+	// For E2E encryption, the frontend will handle encryption/decryption
 	privateKeyBytes := privateKey[:]
-	_, err := s.db.Exec(`
+	_,  err := s.db.Exec(`
 		INSERT INTO desks (id, account_id, display_name, public_key, private_key, auto_indent, 
 		                   font_family, font_size, line_height, default_salutation, default_closure, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -263,6 +267,26 @@ func (s *SQLiteStorage) CreateDesk(desk *models.Desk, privateKey [32]byte) error
 	// Update account's desks list
 	_, err = s.db.Exec("UPDATE accounts SET updated_at = ? WHERE id = ?", time.Now(), desk.AccountID)
 	return err
+}
+
+// GetDeskEncryptedPrivateKey retrieves the private key and encrypts it with the provided password
+func (s *SQLiteStorage) GetDeskEncryptedPrivateKey(id string, password string) (string, error) {
+	var privateKeyBytes []byte
+	err := s.db.QueryRow("SELECT private_key FROM desks WHERE id = ?", id).Scan(&privateKeyBytes)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", fmt.Errorf("desk not found")
+		}
+		return "", err
+	}
+
+	// Encrypt the private key with the password
+	encryptedKey, err := crypto.EncryptPrivateKey(privateKeyBytes, password)
+	if err != nil {
+		return "", fmt.Errorf("failed to encrypt private key: %w", err)
+	}
+
+	return encryptedKey, nil
 }
 
 func (s *SQLiteStorage) GetDesk(id string) (*models.Desk, error) {

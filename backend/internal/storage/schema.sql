@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS conversation_mivs (
     font_family TEXT NOT NULL,
     font_size TEXT NOT NULL,
     line_height TEXT NOT NULL DEFAULT '1.65',
+    is_encrypted BOOLEAN NOT NULL DEFAULT 0,
     is_ack BOOLEAN NOT NULL DEFAULT 0,
     is_forgotten BOOLEAN NOT NULL DEFAULT 0,
     deleted BOOLEAN NOT NULL DEFAULT 0,

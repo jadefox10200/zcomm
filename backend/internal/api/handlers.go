@@ -104,7 +104,7 @@ func (s *Server) registerAccount(c *gin.Context) {
 		AccountID:         account.ID,
 		PublicKey:         crypto.PublicKeyToBase64(keyPair.PublicKey),
 		Name:              "Primary Desk",
-		AutoIndent:        true,
+		AutoIndent:        false,
 		FontFamily:        "Georgia, serif",
 		FontSize:          "14px",
 		DefaultSalutation: "Dear [User],",
@@ -169,9 +169,22 @@ func (s *Server) loginAccount(c *gin.Context) {
 		return
 	}
 
+	// Get encrypted private keys for all desks
+	encryptedPrivKeys := make(map[string]string)
+	for _, deskID := range account.Desks {
+		encryptedKey, err := s.storage.GetDeskEncryptedPrivateKey(deskID, req.Password)
+		if err != nil {
+			log.Printf("Failed to encrypt private key for desk %s: %v", deskID, err)
+			// Continue with other desks - this desk won't have encryption capability
+			continue
+		}
+		encryptedPrivKeys[deskID] = encryptedKey
+	}
+
 	c.JSON(http.StatusOK, models.LoginResponse{
-		Account: account,
-		Token:   token,
+		Account:           account,
+		Token:             token,
+		EncryptedPrivKeys: encryptedPrivKeys,
 	})
 }
 
@@ -403,6 +416,65 @@ func (s *Server) updateDesk(c *gin.Context) {
 	c.JSON(http.StatusOK, desk)
 }
 
+// getDeskPublicKey returns the public key for a desk (for E2E encryption)
+func (s *Server) getDeskPublicKey(c *gin.Context) {
+	deskID := c.Param("desk_id")
+	if deskID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "desk_id is required"})
+		return
+	}
+
+	// Normalize desk ID for lookup
+	normalizedDeskID := crypto.NormalizeDeskID(deskID)
+
+	// Get desk
+	desk, err := s.storage.GetDesk(normalizedDeskID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Desk not found"})
+		return
+	}
+
+	// Return public key only (no authentication required - public keys are public)
+	c.JSON(http.StatusOK, gin.H{
+		"desk_id":    desk.ID,
+		"public_key": desk.PublicKey,
+	})
+}
+
+// getBatchDeskPublicKeys returns public keys for multiple desks (for CC encryption)
+func (s *Server) getBatchDeskPublicKeys(c *gin.Context) {
+	var req struct {
+		DeskIDs []string `json:"desk_ids" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Limit batch size to prevent abuse
+	if len(req.DeskIDs) > 50 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Maximum 50 desk IDs per request"})
+		return
+	}
+
+	// Fetch public keys
+	publicKeys := make(map[string]string)
+	for _, deskID := range req.DeskIDs {
+		normalizedDeskID := crypto.NormalizeDeskID(deskID)
+		desk, err := s.storage.GetDesk(normalizedDeskID)
+		if err != nil {
+			// Skip desks that don't exist
+			continue
+		}
+		publicKeys[normalizedDeskID] = desk.PublicKey
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"public_keys": publicKeys,
+	})
+}
+
 // Conversation handlers
 
 func (s *Server) listConversations(c *gin.Context) {
@@ -552,6 +624,12 @@ func (s *Server) getConversation(c *gin.Context) {
 		normalizedDeskID := crypto.NormalizeDeskID(deskID)
 		// Adjust states from the perspective of the querying desk
 		for _, miv := range mivs {
+			// Skip state recalculation for certain permanent states
+			if miv.State == models.StateREMOVED {
+				// Don't recalculate - this miv has been explicitly removed
+				continue
+			}
+			
 			normalizedFrom := crypto.NormalizeDeskID(miv.From)
 			normalizedMivTo := crypto.NormalizeDeskID(miv.ArrowTo)
 			
@@ -608,7 +686,16 @@ func (s *Server) getConversation(c *gin.Context) {
 func (s *Server) createConversation(c *gin.Context) {
 	// Read raw body for debugging
 	bodyBytes, _ := io.ReadAll(c.Request.Body)
-	log.Printf("DEBUG: Raw JSON body: %s", string(bodyBytes))
+	log.Printf("🔍 DEBUG: Raw JSON body length: %d bytes", len(bodyBytes))
+	log.Printf("🔍 DEBUG: Raw JSON body: %s", string(bodyBytes))
+	
+	// Check if cc_bodies exists in raw JSON
+	if strings.Contains(string(bodyBytes), "cc_bodies") {
+		log.Printf("✅ cc_bodies found in raw JSON")
+	} else {
+		log.Printf("❌ cc_bodies NOT found in raw JSON")
+	}
+	
 	// Restore body for binding
 	c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 	
@@ -619,14 +706,49 @@ func (s *Server) createConversation(c *gin.Context) {
 		return
 	}
 
+	// DEBUG: Log parsed fields
+	log.Printf("🔍 DEBUG createConversation - PARSED request:")
+	log.Printf("  SenderBody: %d chars", len(req.SenderBody))
+	log.Printf("  RecipientBody: %d chars", len(req.RecipientBody))
+	log.Printf("  Are they identical? %v", req.SenderBody == req.RecipientBody)
+	log.Printf("  CC recipients: %v", req.Cc)
+	log.Printf("  CcBodies map is nil: %v", req.CcBodies == nil)
+	if req.CcBodies != nil {
+		log.Printf("  CcBodies map size: %d", len(req.CcBodies))
+		for k, v := range req.CcBodies {
+			log.Printf("    CC[%s]: %d chars (prefix: %s)", k, len(v), v[:min(40, len(v))])
+		}
+	}
+
 	deskID := c.Query("desk_id")
 	if deskID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "desk_id is required"})
 		return
 	}
 
+	// Prevent sending, CCing, or via-routing to self
+	normalizedDeskID := crypto.NormalizeDeskID(deskID)
+	normalizedTo := crypto.NormalizeDeskID(req.To)
+	if normalizedTo == normalizedDeskID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "You cannot send a message to yourself."})
+		return
+	}
+	for _, ccRecipient := range req.Cc {
+		if ccRecipient != "" && crypto.NormalizeDeskID(ccRecipient) == normalizedDeskID {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "You cannot CC yourself."})
+			return
+		}
+	}
+	for _, viaRecipient := range req.Via {
+		if viaRecipient != "" && crypto.NormalizeDeskID(viaRecipient) == normalizedDeskID {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "You cannot route a message via yourself."})
+			return
+		}
+	}
+
 	// Debug logging - log the actual values
 	log.Printf("DEBUG createConversation request values:")
+	log.Printf("  IsEncrypted: %v", req.IsEncrypted)
 	if req.FontFamily != nil {
 		log.Printf("  FontFamily: %s", *req.FontFamily)
 	} else {
@@ -644,7 +766,7 @@ func (s *Server) createConversation(c *gin.Context) {
 	}
 
 	// Validate that recipient desk exists
-	normalizedTo := crypto.NormalizeDeskID(req.To)
+	normalizedTo = crypto.NormalizeDeskID(req.To)
 	_, err := s.storage.GetDesk(normalizedTo)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Recipient desk '%s' does not exist. Please verify the desk number and try again.", req.To)})
@@ -716,9 +838,9 @@ func (s *Server) createConversation(c *gin.Context) {
 		ArrowTo:        deskID, // Arrow points back to sender for their SENT basket
 		Type:           models.MivTypeMiv,
 		Subject:        req.Subject,
-		Body:           base64.StdEncoding.EncodeToString([]byte(req.Body)),
+		Body:           req.SenderBody, // Store sender's encrypted body directly
 		State:          models.StateSENT, // Sender sees SENT
-		IsEncrypted:    false,
+		IsEncrypted:    true,  // All messages are E2E encrypted
 		FontFamily:     req.FontFamily,
 		FontSize:       req.FontSize,
 		LineHeight:     req.LineHeight,
@@ -743,9 +865,9 @@ func (s *Server) createConversation(c *gin.Context) {
 		ArrowTo:        actualRecipient,      // Arrow points to actual recipient (via or final)
 		Type:           firstRecipientType,   // VIA if intermediary, MIV if final recipient
 		Subject:        req.Subject,
-		Body:           base64.StdEncoding.EncodeToString([]byte(req.Body)),
+		Body:           req.RecipientBody, // Store recipient's encrypted body directly
 		State:          models.StateIN, // Recipient sees IN
-		IsEncrypted:    false,
+		IsEncrypted:    true,  // All messages are E2E encrypted
 		FontFamily:     req.FontFamily,
 		FontSize:       req.FontSize,
 		LineHeight:     req.LineHeight,
@@ -773,10 +895,25 @@ func (s *Server) createConversation(c *gin.Context) {
 	// Create CC copies of the miv for each CC recipient in the SAME conversation
 	for _, ccRecipient := range req.Cc {
 		if ccRecipient != "" {
-			normalizedCc := crypto.NormalizeDeskID(ccRecipient)
+			log.Printf("🔍 Processing CC recipient: %s", ccRecipient)
 			
-			// Create CC copy of the miv in the SAME conversation
-			// CC recipient owns their copy
+			// Get CC-specific encrypted body from the map
+			if req.CcBodies == nil {
+				log.Printf("❌ ERROR: CcBodies map is nil but CC recipients exist")
+				c.JSON(http.StatusBadRequest, gin.H{"error": "CC recipients specified but no CC bodies provided"})
+				return
+			}
+			
+			ccBody, ok := req.CcBodies[ccRecipient]
+			if !ok || ccBody == "" {
+				log.Printf("❌ ERROR: No encrypted body found for CC recipient %s", ccRecipient)
+				log.Printf("   Available keys in CcBodies: %v", func() []string { keys := []string{}; for k := range req.CcBodies { keys = append(keys, k) }; return keys }())
+				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("No encrypted body for CC recipient %s", ccRecipient)})
+				return
+			}
+			
+			log.Printf("  ✅ Found CC-specific body: %s", ccBody[:min(40, len(ccBody))])
+			
 			ccMiv := &models.ConversationMiv{
 				ConversationID: conv.ID, // SAME conversation as sender/recipient
 				Owner:          ccRecipient, // CRITICAL: CC recipient owns their copy
@@ -787,9 +924,9 @@ func (s *Server) createConversation(c *gin.Context) {
 				ArrowTo:        ccRecipient, // Arrow points to CC recipient
 				Type:           models.MivTypeCC, // CC copy
 				Subject:        req.Subject,
-				Body:           base64.StdEncoding.EncodeToString([]byte(req.Body)),
+				Body:           ccBody, // Use CC recipient's own encrypted body
 				State:          models.StateIN, // CC mivs start in IN state
-				IsEncrypted:    false,
+				IsEncrypted:    true,  // All messages are E2E encrypted
 				IsAck:          false,
 				FontFamily:     req.FontFamily,
 				FontSize:       req.FontSize,
@@ -806,7 +943,7 @@ func (s *Server) createConversation(c *gin.Context) {
 
 			// Create notification for CC recipient
 			ccNotification := &models.Notification{
-				DeskID:         normalizedCc,
+				DeskID:         ccRecipient,
 				Type:           models.NotificationTypeNewMiv,
 				MivID:          ccMiv.ID,
 				ConversationID: conv.ID, // SAME conversation
@@ -825,20 +962,7 @@ func (s *Server) createConversation(c *gin.Context) {
 }
 
 func (s *Server) replyToConversation(c *gin.Context) {
-	conversationID := c.Param("id")
-
-	var req models.ReplyToConversationRequest
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	deskID := c.Query("desk_id")
-	if deskID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "desk_id is required"})
-		return
-	}
+	// (All logic above is now handled once, no need to redeclare variables)
 
 	// Get conversation
 	conv, err := s.storage.GetConversation(conversationID)
@@ -949,9 +1073,9 @@ func (s *Server) replyToConversation(c *gin.Context) {
 		ArrowTo:        actualRecipient, // Who actually receives this reply (first via or final recipient)
 		Type:           models.MivTypeMiv, // Regular message
 		Subject:        conv.Subject,
-		Body:           base64.StdEncoding.EncodeToString([]byte(req.Body)),
+		Body:           req.SenderBody, // Store sender's encrypted body directly
 		State:          models.StateSENT, // Use SENT state for replies
-		IsEncrypted:    false,
+		IsEncrypted:    true,  // All messages are E2E encrypted
 		IsAck:          req.IsAck,
 		FontFamily:     req.FontFamily,
 		FontSize:       req.FontSize,
@@ -997,9 +1121,9 @@ func (s *Server) replyToConversation(c *gin.Context) {
 			ArrowTo:        normalizedActualRecipient, // Arrow points to actual recipient
 			Type:           actualRecipientType,       // VIA if intermediary, MIV if final recipient
 			Subject:        conv.Subject,
-			Body:           base64.StdEncoding.EncodeToString([]byte(req.Body)),
+			Body:           req.RecipientBody, // Store recipient's encrypted body directly
 			State:          models.StateIN, // IN state for recipient
-			IsEncrypted:    false,
+			IsEncrypted:    true,  // All messages are E2E encrypted
 			IsAck:          req.IsAck,
 			FontFamily:     req.FontFamily,
 			FontSize:       req.FontSize,
@@ -1038,6 +1162,22 @@ func (s *Server) replyToConversation(c *gin.Context) {
 			nextSeqNo := len(ccMivs) + 1
 			log.Printf("DEBUG: Creating CC reply miv #%d in conversation %s for recipient %s", nextSeqNo, conv.ID, ccRecipient)
 			
+			// Get CC-specific encrypted body from the map
+			if req.CcBodies == nil {
+				log.Printf("❌ ERROR: CcBodies map is nil but CC recipients exist in reply")
+				c.JSON(http.StatusBadRequest, gin.H{"error": "CC recipients specified but no CC bodies provided"})
+				return
+			}
+			
+			ccBody, ok := req.CcBodies[ccRecipient]
+			if !ok || ccBody == "" {
+				log.Printf("❌ ERROR: No encrypted body found for CC recipient %s in reply", ccRecipient)
+				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("No encrypted body for CC recipient %s", ccRecipient)})
+				return
+			}
+			
+			log.Printf("  ✅ Found CC-specific reply body: %s", ccBody[:min(40, len(ccBody))])
+			
 			// Create CC copy of the reply in the SAME conversation
 			ccReplyMiv := &models.ConversationMiv{
 				ConversationID: conv.ID, // SAME conversation
@@ -1049,9 +1189,9 @@ func (s *Server) replyToConversation(c *gin.Context) {
 				ArrowTo:        ccRecipient, // Arrow points to CC recipient
 				Type:           models.MivTypeCC, // CC copy
 				Subject:        conv.Subject,
-				Body:           base64.StdEncoding.EncodeToString([]byte(req.Body)),
+				Body:           ccBody, // Use CC recipient's own encrypted body
 				State:          models.StateIN, // CC mivs use IN state
-				IsEncrypted:    false,
+				IsEncrypted:    true,  // All messages are E2E encrypted
 				IsAck:          req.IsAck,
 				FontFamily:     req.FontFamily,
 				FontSize:       req.FontSize,
@@ -1718,6 +1858,12 @@ func (s *Server) approveViaRouting(c *gin.Context) {
 		return
 	}
 
+	var req models.ApproveViaRoutingRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
 	// Get the miv
 	miv, err := s.storage.GetConversationMiv(mivID)
 	if err != nil {
@@ -1815,7 +1961,7 @@ func (s *Server) approveViaRouting(c *gin.Context) {
 		ArrowTo:        nextArrowTo,
 		Type:           newMivType, // VIA if intermediary, MIV if final recipient
 		Subject:        miv.Subject,
-		Body:           miv.Body,
+		Body:           req.NextRecipientBody, // Use re-encrypted body for next recipient
 		State:          models.StateIN, // Bob sees it in his IN basket
 		IsEncrypted:    miv.IsEncrypted,
 		IsAck:          miv.IsAck, // CRITICAL: Preserve ACK flag when forwarding
@@ -1899,8 +2045,8 @@ func (s *Server) rejectViaRouting(c *gin.Context) {
 	}
 	nextSeqNo := len(mivs) + 1
 
-	// Create a rejection message body
-	rejectionBody := fmt.Sprintf("<p><strong>Via Routing Rejected</strong></p><p>Your message was rejected by %s during via routing.</p><p><strong>Reason:</strong> %s</p><p><strong>Original Subject:</strong> %s</p>", deskID, req.Reason, miv.Subject)
+	// Use the encrypted rejection body from the request for the recipient
+	rejectionBody := req.RecipientBody
 
 	// Get next sequence number for sender
 	senderMivs, err := s.storage.GetConversationMivs(miv.ConversationID, miv.From)
@@ -1910,56 +2056,56 @@ func (s *Server) rejectViaRouting(c *gin.Context) {
 	}
 	senderNextSeqNo := len(senderMivs) + 1
 
-	// Create rejector's SENT copy (like a normal reply)
-	rejectorMiv := &models.ConversationMiv{
-		ConversationID: miv.ConversationID,
-		Owner:          deskID,           // Rejector owns this copy
-		SeqNo:          nextSeqNo,
-		From:           deskID,           // From the person who rejected
-		To:             miv.From,         // To the original sender
-		ArrowTo:        deskID,           // Arrow points to rejector for SENT basket
-		Type:           models.MivTypeMiv,
-		Subject:        fmt.Sprintf("REJECTED: %s", miv.Subject),
-		Body:           base64.StdEncoding.EncodeToString([]byte(rejectionBody)),
-		State:          models.StateSENT, // Rejector sees it in SENT basket
-		IsEncrypted:    false,
-		IsAck:          true,             // Set as ACK - allows deletion without reply
-		FontFamily:     miv.FontFamily,
-		FontSize:       miv.FontSize,
-		LineHeight:     miv.LineHeight,
-		Via:            []string{},       // No via routing on the rejection
-		ViaIndex:       0,
-		IsViaRejected:  false,
-		RejectedMivID:  miv.ID,          // Store reference to original MIV
-	}
+       // Create rejector's SENT copy (like a normal reply)
+       rejectorMiv := &models.ConversationMiv{
+	       ConversationID: miv.ConversationID,
+	       Owner:          deskID,           // Rejector owns this copy
+	       SeqNo:          nextSeqNo,
+	       From:           deskID,           // From the person who rejected
+	       To:             miv.From,         // To the original sender
+	       ArrowTo:        deskID,           // Arrow points to rejector for SENT basket
+	       Type:           models.MivTypeMiv,
+	       Subject:        fmt.Sprintf("REJECTED: %s", miv.Subject),
+	       Body:           base64.StdEncoding.EncodeToString([]byte(rejectionBody)),
+	       State:          models.StateSENT, // Rejector sees it in SENT basket
+	       IsEncrypted:    true,
+	       IsAck:          true,             // Set as ACK - allows deletion without reply
+	       FontFamily:     miv.FontFamily,
+	       FontSize:       miv.FontSize,
+	       LineHeight:     miv.LineHeight,
+	       Via:            []string{},       // No via routing on the rejection
+	       ViaIndex:       0,
+	       IsViaRejected:  false,
+	       RejectedMivID:  miv.ID,          // Store reference to original MIV
+       }
 
 	if err := s.storage.CreateConversationMiv(rejectorMiv); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create rejector miv"})
 		return
 	}
 
-	// Create sender's IN copy (they receive the rejection)
-	senderRejectionMiv := &models.ConversationMiv{
-		ConversationID: miv.ConversationID,
-		Owner:          miv.From,         // Sender owns this copy
-		SeqNo:          senderNextSeqNo,
-		From:           deskID,           // From the person who rejected
-		To:             miv.From,         // To the original sender
-		ArrowTo:        miv.From,         // Arrow points to sender
-		Type:           models.MivTypeMiv,
-		Subject:        fmt.Sprintf("REJECTED: %s", miv.Subject),
-		Body:           base64.StdEncoding.EncodeToString([]byte(rejectionBody)),
-		State:          models.StateIN,   // Sender sees it in IN basket
-		IsEncrypted:    false,
-		IsAck:          true,             // Set as ACK - sender can delete or reply
-		FontFamily:     miv.FontFamily,
-		FontSize:       miv.FontSize,
-		LineHeight:     miv.LineHeight,
-		Via:            []string{},       // No via routing on the rejection
-		ViaIndex:       0,
-		IsViaRejected:  false,
-		RejectedMivID:  miv.ID,          // Store reference to original MIV
-	}
+       // Create sender's IN copy (they receive the rejection)
+       senderRejectionMiv := &models.ConversationMiv{
+	       ConversationID: miv.ConversationID,
+	       Owner:          miv.From,         // Sender owns this copy
+	       SeqNo:          senderNextSeqNo,
+	       From:           deskID,           // From the person who rejected
+	       To:             miv.From,         // To the original sender
+	       ArrowTo:        miv.From,         // Arrow points to sender
+	       Type:           models.MivTypeMiv,
+	       Subject:        fmt.Sprintf("REJECTED: %s", miv.Subject),
+	       Body:           req.RecipientBody,
+	       State:          models.StateIN,   // Sender sees it in IN basket
+	       IsEncrypted:    true,
+	       IsAck:          true,             // Set as ACK - sender can delete or reply
+	       FontFamily:     miv.FontFamily,
+	       FontSize:       miv.FontSize,
+	       LineHeight:     miv.LineHeight,
+	       Via:            []string{},       // No via routing on the rejection
+	       ViaIndex:       0,
+	       IsViaRejected:  false,
+	       RejectedMivID:  miv.ID,          // Store reference to original MIV
+       }
 
 	if err := s.storage.CreateConversationMiv(senderRejectionMiv); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create sender rejection miv"})

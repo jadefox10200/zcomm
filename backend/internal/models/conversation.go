@@ -58,24 +58,30 @@ type ConversationMiv struct {
 
 // CreateConversationRequest represents a request to create a new conversation
 type CreateConversationRequest struct {
-	To         string    `json:"to" binding:"required"`
-	Via        []string  `json:"via,omitempty"`        // Via routing: array of intermediate desk IDs
-	Cc         []string  `json:"cc,omitempty"`         // Optional CC recipients
-	Subject    string    `json:"subject" binding:"required"`
-	Body       string    `json:"body" binding:"required"`
-	FontFamily *string   `json:"font_family,omitempty"` // Font family for message display
-	FontSize   *string   `json:"font_size,omitempty"`   // Font size for message display
-	LineHeight *string   `json:"line_height,omitempty"` // Line height for message display
+	To            string              `json:"to" binding:"required"`
+	Via           []string            `json:"via,omitempty"`                 // Via routing: array of intermediate desk IDs
+	Cc            []string            `json:"cc,omitempty"`                  // Optional CC recipients
+	Subject       string              `json:"subject" binding:"required"`
+	SenderBody    string              `json:"sender_body" binding:"required"`    // Encrypted body for sender (encrypted with sender's keys)
+	RecipientBody string              `json:"recipient_body" binding:"required"` // Encrypted body for recipient (encrypted with recipient's public key)
+	CcBodies      map[string]string   `json:"cc_bodies,omitempty"`               // Map of deskID -> encrypted body for each CC recipient
+	IsEncrypted   bool                `json:"is_encrypted"`                  // Whether the body is end-to-end encrypted
+	FontFamily    *string             `json:"font_family,omitempty"`         // Font family for message display
+	FontSize      *string             `json:"font_size,omitempty"`           // Font size for message display
+	LineHeight    *string             `json:"line_height,omitempty"`         // Line height for message display
 }
 
 // ReplyToConversationRequest represents a request to reply in a conversation
 type ReplyToConversationRequest struct {
-	Body       string    `json:"body" binding:"required"`
-	IsAck      bool      `json:"is_ack"`                // Whether this is an ACK message to end the conversation
-	Cc         []string  `json:"cc,omitempty"`          // CC recipients (only for first reply in conversation)
-	FontFamily *string   `json:"font_family,omitempty"` // Font family for message display
-	FontSize   *string   `json:"font_size,omitempty"`   // Font size for message display
-	LineHeight *string   `json:"line_height,omitempty"` // Line height for message display
+	SenderBody    string            `json:"sender_body" binding:"required"`    // Encrypted body for sender
+	RecipientBody string            `json:"recipient_body" binding:"required"` // Encrypted body for recipient
+	CcBodies      map[string]string `json:"cc_bodies,omitempty"`               // Map of deskID -> encrypted body for each CC recipient
+	IsAck         bool              `json:"is_ack"`                            // Whether this is an ACK message to end the conversation
+	IsEncrypted   bool              `json:"is_encrypted"`                      // Whether the body is end-to-end encrypted
+	Cc            []string          `json:"cc,omitempty"`                      // CC recipients (only for first reply in conversation)
+	FontFamily    *string           `json:"font_family,omitempty"`             // Font family for message display
+	FontSize      *string           `json:"font_size,omitempty"`               // Font size for message display
+	LineHeight    *string           `json:"line_height,omitempty"`             // Line height for message display
 }
 
 // ListConversationsResponse represents a list of conversations with metadata
@@ -93,12 +99,15 @@ type ConversationWithLatest struct {
 
 // ApproveViaRoutingRequest represents a request to approve via routing
 type ApproveViaRoutingRequest struct {
-	// No fields needed - desk_id comes from query parameter
+	NextRecipientBody string `json:"next_recipient_body" binding:"required"` // Body re-encrypted for next recipient
 }
 
 // RejectViaRoutingRequest represents a request to reject via routing
+// Accepts an encrypted body for the recipient
+// (the person who sent the message to the rejector)
 type RejectViaRoutingRequest struct {
-	Reason string `json:"reason" binding:"required"` // Reason for rejection
+	Reason         string `json:"reason" binding:"required"`
+	RecipientBody  string `json:"recipient_body" binding:"required"`
 }
 
 // GetConversationResponse represents a conversation with all its mivs

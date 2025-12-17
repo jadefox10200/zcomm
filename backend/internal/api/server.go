@@ -34,6 +34,7 @@ type StorageBackend interface {
 	CreateDesk(desk *models.Desk, privateKey [32]byte) error
 	GetDesk(id string) (*models.Desk, error)
 	GetDeskPrivateKey(id string) ([32]byte, error)
+	GetDeskEncryptedPrivateKey(id string, password string) (string, error)
 	ListDesksByAccount(accountID string) ([]*models.Desk, error)
 	UpdateDesk(desk *models.Desk) error
 
@@ -139,6 +140,8 @@ func (s *Server) setupRoutes() {
 		api.POST("/desks", s.createDesk)
 		api.PUT("/desks/:desk_id", s.updateDesk)
 		api.POST("/desks/switch", s.switchDesk)
+		api.GET("/desks/:desk_id/public-key", s.getDeskPublicKey)     // Get public key for encryption
+		api.POST("/desks/public-keys", s.getBatchDeskPublicKeys)       // Batch get public keys
 
 		// Conversation endpoints
 		api.GET("/conversations", s.listConversations)
