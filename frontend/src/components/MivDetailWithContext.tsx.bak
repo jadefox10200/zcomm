@@ -122,97 +122,62 @@ function MivDetailWithContext({
         return;
       }
 
-      console.log("🔓 Decrypting message:", selectedMiv.id);
+      // If this is a message I sent (SENT state), don't try to decrypt it
+      // It's stored in plaintext for the sender's convenience
+      if (selectedMiv.state === 'SENT') {
+        console.log('� This is a sent message - no decryption needed');
+        setDecryptedBody(selectedMiv.body);
+        setIsDecrypting(false);
+        return;
+      }
+
+      console.log('�🔓 Attempting to decrypt received message:', selectedMiv.id);
       setIsDecrypting(true);
       setDecryptionError(null);
 
       try {
         // Import crypto utilities
-        const { getPrivateKey, decryptMessage: decrypt } = await import(
-          "../utils/crypto"
-        );
+        const { getPrivateKey, decryptMessage: decrypt } = await import('../utils/crypto');
 
         // Get current user's private key
-        console.log("🔑 Looking for private key for desk:", currentDeskId);
+        console.log('🔑 Looking for private key for desk:', currentDeskId);
         const myPrivateKey = getPrivateKey(currentDeskId);
         if (!myPrivateKey) {
-          console.error("❌ Private key not found for desk:", currentDeskId);
-          throw new Error("Private key not found. Please log in again.");
+          console.error('❌ Private key not found for desk:', currentDeskId);
+          throw new Error('Private key not found. Please log in again.');
         }
-        console.log("✓ Private key found for desk:", currentDeskId);
+        console.log('✓ Private key found for desk:', currentDeskId);
 
-        // Determine who encrypted this message for the current recipient
-        // For via routing: the previous person in the chain encrypted it
-        // For direct messages: the sender (from) encrypted it
-        let encryptorId = selectedMiv.from;
+        // Determine the other party in the conversation
+        // If I sent this message (from === me), the other party is 'to'
+        // If I received this message (to === me or I'm in CC), the other party is 'from'
+        const otherPartyId = selectedMiv.from === currentDeskId ? selectedMiv.to : selectedMiv.from;
+        console.log('🔍 Fetching public key for other party:', otherPartyId);
 
-        if (selectedMiv.via && selectedMiv.via.length > 0) {
-          // This message went through via routing
-          // Find current recipient's position in the chain
-          const myPosition = selectedMiv.via.indexOf(currentDeskId);
+        // Fetch other party's public key
+        const otherPartyPublicKeyResponse = await api.getDeskPublicKey(otherPartyId);
+        const otherPartyPublicKey = otherPartyPublicKeyResponse.public_key;
+        console.log('✓ Other party public key retrieved');
 
-          if (myPosition > 0) {
-            // Current user is not the first via recipient
-            // Message was encrypted by the previous via recipient
-            encryptorId = selectedMiv.via[myPosition - 1];
-            console.log(
-              `📨 Via routing: message encrypted by previous recipient (via[${
-                myPosition - 1
-              }]):`,
-              encryptorId
-            );
-          } else if (myPosition === -1 && currentDeskId === selectedMiv.to) {
-            // Current user is the final recipient (not in via chain)
-            // Message was encrypted by the last via recipient
-            encryptorId = selectedMiv.via[selectedMiv.via.length - 1];
-            console.log(
-              "� Final recipient: message encrypted by last via recipient:",
-              encryptorId
-            );
-          } else {
-            // Current user is the first via recipient
-            // Message was encrypted by the original sender
-            console.log(
-              "📨 First via recipient: message encrypted by sender:",
-              encryptorId
-            );
-          }
-        } else {
-          console.log("📨 Direct message: encrypted by sender:", encryptorId);
-        }
-
-        console.log("🔍 Fetching encryptor's public key:", encryptorId);
-        const encryptorPublicKeyResponse = await api.getDeskPublicKey(
-          encryptorId
-        );
-        const encryptorPublicKey = encryptorPublicKeyResponse.public_key;
-        console.log("✓ Encryptor's public key retrieved");
-
-        // For NaCl box decryption:
-        // Message was encrypted with: box(message, nonce, myPublicKey, encryptorPrivateKey)
-        // Decrypt with: box.open(encrypted, nonce, encryptorPublicKey, myPrivateKey)
-        console.log("🔐 Decryption parameters:", {
+        // Decrypt the message body
+        // NaCl box encryption requires: their public key + my private key
+        console.log('🔐 Decryption parameters:', {
           encryptedBodyLength: selectedMiv.body.length,
-          encryptorPublicKeyLength: encryptorPublicKey.length,
+          otherPartyId,
+          otherPartyPublicKeyLength: otherPartyPublicKey.length,
           myPrivateKeyLength: myPrivateKey.length,
           from: selectedMiv.from,
           to: selectedMiv.to,
           currentDesk: currentDeskId,
-          encryptor: encryptorId,
           isSentMessage: selectedMiv.from === currentDeskId,
         });
-        const decrypted = decrypt(
-          selectedMiv.body,
-          encryptorPublicKey,
-          myPrivateKey
-        );
+        const decrypted = decrypt(selectedMiv.body, otherPartyPublicKey, myPrivateKey);
         setDecryptedBody(decrypted);
-        console.log("✅ Message decrypted successfully");
+        console.log('✅ Message decrypted successfully');
+
       } catch (error) {
-        console.error("❌ Decryption failed:", error);
-        setDecryptionError(
-          error instanceof Error ? error.message : "Failed to decrypt message"
-        );
+        console.error('❌ Decryption failed:', error);
+        setDecryptionError(error instanceof Error ? error.message : 'Failed to decrypt message');
         setDecryptedBody(null);
       } finally {
         setIsDecrypting(false);
@@ -414,53 +379,7 @@ function MivDetailWithContext({
 
   const handleApproveVia = async () => {
     try {
-      // Import crypto utilities
-      const { getPrivateKey, encryptMessage } = await import("../utils/crypto");
-
-      // Get current user's private key
-      const myPrivateKey = getPrivateKey(currentDeskId);
-      if (!myPrivateKey) {
-        throw new Error("Private key not found. Please log in again.");
-      }
-
-      // Determine the next recipient
-      const nextViaIndex = selectedMiv.via_index + 1;
-      let nextRecipient: string;
-
-      if (selectedMiv.via && nextViaIndex < selectedMiv.via.length) {
-        // Forward to next via recipient
-        nextRecipient = selectedMiv.via[nextViaIndex];
-      } else {
-        // Reached the end of via chain, deliver to final recipient
-        nextRecipient = selectedMiv.to;
-      }
-
-      console.log("🔄 Re-encrypting for next recipient:", nextRecipient);
-
-      // Use the already decrypted body from state
-      if (!decryptedBody) {
-        throw new Error("Message must be decrypted before forwarding");
-      }
-
-      // Fetch next recipient's public key
-      const nextPublicKeyResponse = await api.getDeskPublicKey(nextRecipient);
-      const nextPublicKey = nextPublicKeyResponse.public_key;
-
-      // Re-encrypt the message for the next recipient
-      const reEncryptedBody = encryptMessage(
-        decryptedBody,
-        nextPublicKey,
-        myPrivateKey
-      );
-
-      console.log("✓ Message re-encrypted for next recipient");
-
-      // Approve with the re-encrypted body
-      await api.approveViaRouting(
-        selectedMiv.id,
-        currentDeskId,
-        reEncryptedBody
-      );
+      await api.approveViaRouting(selectedMiv.id, currentDeskId);
 
       // Navigate back to basket view immediately - handleBackToBasket will refresh conversations
       // The miv should now be filtered out because arrow_to has been updated
@@ -478,51 +397,17 @@ function MivDetailWithContext({
     }
 
     try {
-      // Import crypto utilities
-      const { getPrivateKey, encryptMessage } = await import("../utils/crypto");
-      const myPrivateKey = getPrivateKey(currentDeskId);
-      if (!myPrivateKey) {
-        throw new Error("Private key not found. Please log in again.");
-      }
-
-      // Determine who to send the rejection to (previous via hop or original sender)
-      let rejectionRecipient: string;
-      if (selectedMiv.via && selectedMiv.via.length > 0) {
-        const myPosition = selectedMiv.via.indexOf(currentDeskId);
-        if (myPosition > 0) {
-          rejectionRecipient = selectedMiv.via[myPosition - 1];
-        } else {
-          rejectionRecipient = selectedMiv.from;
-        }
-      } else {
-        rejectionRecipient = selectedMiv.from;
-      }
-
-      // Build the rejection message
-      const rejectionBody = `<p><strong>Via Routing Rejected</strong></p><p>Your message was rejected by ${currentDeskId} during via routing.</p><p><strong>Reason:</strong> ${viaRejectReason}</p><p><strong>Original Subject:</strong> ${selectedMiv.subject}</p>`;
-
-      // Fetch recipient's public key
-      const recipientPublicKeyResponse = await api.getDeskPublicKey(
-        rejectionRecipient
-      );
-      const recipientPublicKey = recipientPublicKeyResponse.public_key;
-
-      // Encrypt the rejection message for the recipient
-      const encryptedRejectionBody = encryptMessage(
-        rejectionBody,
-        recipientPublicKey,
-        myPrivateKey
-      );
-
       await api.rejectViaRouting(
         selectedMiv.id,
         currentDeskId,
-        viaRejectReason,
-        encryptedRejectionBody
+        viaRejectReason
       );
 
       setShowViaReject(false);
       setViaRejectReason("");
+
+      // Navigate back to basket view immediately - handleBackToBasket will refresh conversations
+      // The rejected miv should now be filtered out
       onBack?.();
     } catch (err) {
       console.error("Failed to reject via routing:", err);
@@ -560,20 +445,12 @@ function MivDetailWithContext({
   };
 
   const handleDeleteCc = async () => {
-    if (!selectedMiv.conversation_id) {
-      console.error("No conversation ID found");
-      alert("Cannot delete CC: no conversation ID");
-      return;
-    }
-
     try {
-      await api.deleteCcMiv(selectedMiv.conversation_id, currentDeskId);
-      // Call the callback to refresh the parent view and navigate back
+      await api.forgetMiv(selectedMiv.id);
+      // Call the callback to refresh the parent view
       if (onForget) {
         onForget();
       }
-      // Optionally show success message
-      console.log("CC message removed successfully");
     } catch (err) {
       console.error("Failed to remove CC miv:", err);
       alert("Failed to remove message. Please try again.");
@@ -675,7 +552,6 @@ function MivDetailWithContext({
   // Exception: CC mivs are individual copies and can always be acted upon
   const canShowActions = () => {
     if (isArchived) return false;
-    if (selectedMiv.state === "REMOVED") return false;
     // CC mivs can always be acted upon since they are individual copies
     if (selectedMiv.type === "CC") return true;
     // For all other miv types, only allow actions on the latest one
@@ -901,15 +777,12 @@ function MivDetailWithContext({
             {/* Body content */}
             <div className="epistle-body">
               {selectedMiv.is_encrypted && (
-                <div
-                  className="encryption-indicator"
-                  style={{
-                    fontSize: "0.85em",
-                    color: "#666",
-                    marginBottom: "10px",
-                    fontStyle: "italic",
-                  }}
-                >
+                <div className="encryption-indicator" style={{ 
+                  fontSize: '0.85em', 
+                  color: '#666', 
+                  marginBottom: '10px',
+                  fontStyle: 'italic'
+                }}>
                   🔒 End-to-end encrypted
                 </div>
               )}
@@ -925,12 +798,14 @@ function MivDetailWithContext({
                     "--message-line-height": selectedMiv.line_height || "1.65",
                   } as React.CSSProperties
                 }
-                dangerouslySetInnerHTML={{
-                  __html: isDecrypting
-                    ? "Decrypting message..."
-                    : decryptionError
-                    ? `[Unable to decrypt: ${decryptionError}]`
-                    : decryptedBody || "[Encrypted - unable to display]",
+                dangerouslySetInnerHTML={{ 
+                  __html: selectedMiv.state === 'SENT' 
+                    ? atob(selectedMiv.body) // Sent messages are plaintext
+                    : (isDecrypting 
+                        ? 'Decrypting message...' 
+                        : (decryptionError 
+                            ? `[Unable to decrypt: ${decryptionError}]` 
+                            : (decryptedBody ? atob(decryptedBody) : atob(selectedMiv.body))))
                 }}
               />
             </div>

@@ -38,14 +38,9 @@ function ConversationItem({
         </span>
         <span className="conversation-separator">•</span>
         <span className="conversation-miv-count">
-          {conversation.conversation.miv_count}{" "}
-          {conversation.conversation.miv_count === 1 ? "miv" : "mivs"}
+          {conversation.latest_miv?.seq_no || 0}{" "}
+          {conversation.latest_miv?.seq_no === 1 ? "miv" : "mivs"}
         </span>
-        {conversation.unread_count > 0 && (
-          <span className="unread-badge-inline">
-            {conversation.unread_count}
-          </span>
-        )}
       </div>
     </div>
   );

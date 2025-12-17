@@ -962,7 +962,20 @@ func (s *Server) createConversation(c *gin.Context) {
 }
 
 func (s *Server) replyToConversation(c *gin.Context) {
-	// (All logic above is now handled once, no need to redeclare variables)
+	conversationID := c.Param("id")
+
+	var req models.ReplyToConversationRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	deskID := c.Query("desk_id")
+	if deskID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "desk_id is required"})
+		return
+	}
 
 	// Get conversation
 	conv, err := s.storage.GetConversation(conversationID)

@@ -239,6 +239,34 @@ export const updateDesk = async (
   return response.json();
 };
 
+// Public key API (for E2E encryption)
+
+export const getDeskPublicKey = async (
+  deskId: string
+): Promise<{ desk_id: string; public_key: string }> => {
+  const response = await fetch(`${API_BASE_URL}/desks/${deskId}/public-key`);
+  if (!response.ok) {
+    throw new Error("Failed to fetch public key");
+  }
+  return response.json();
+};
+
+export const getBatchDeskPublicKeys = async (
+  deskIds: string[]
+): Promise<{ public_keys: Record<string, string> }> => {
+  const response = await fetch(`${API_BASE_URL}/desks/public-keys`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ desk_ids: deskIds }),
+  });
+  if (!response.ok) {
+    throw new Error("Failed to fetch public keys");
+  }
+  return response.json();
+};
+
 // Conversation API
 
 export const listConversations = async (
@@ -433,7 +461,8 @@ export const forgetMiv = async (mivId: string): Promise<void> => {
 // Via routing functions
 export const approveViaRouting = async (
   mivId: string,
-  deskId: string
+  deskId: string,
+  nextRecipientBody: string
 ): Promise<ConversationMiv> => {
   const response = await fetch(
     `${API_BASE_URL}/mivs/${mivId}/via/approve?desk_id=${deskId}`,
@@ -442,6 +471,9 @@ export const approveViaRouting = async (
       headers: {
         "Content-Type": "application/json",
       },
+      body: JSON.stringify({
+        next_recipient_body: nextRecipientBody,
+      }),
     }
   );
   if (!response.ok) {
@@ -453,7 +485,8 @@ export const approveViaRouting = async (
 export const rejectViaRouting = async (
   mivId: string,
   deskId: string,
-  reason: string
+  reason: string,
+  recipientBody: string
 ): Promise<ConversationMiv> => {
   const response = await fetch(
     `${API_BASE_URL}/mivs/${mivId}/via/reject?desk_id=${deskId}`,
@@ -462,7 +495,7 @@ export const rejectViaRouting = async (
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ reason }),
+      body: JSON.stringify({ reason, recipient_body: recipientBody }),
     }
   );
   if (!response.ok) {

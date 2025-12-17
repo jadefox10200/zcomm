@@ -5,7 +5,8 @@ export type MivState =
   | "OUT"
   | "UNANSWERED"
   | "ARCHIVED"
-  | "CC";
+  | "CC"
+  | "REMOVED";
 
 export type NotificationType = "READ_RECEIPT" | "NEW_MIV" | "REPLY";
 
@@ -36,7 +37,9 @@ export interface CreateMivRequest {
   cc?: string[];
   via?: string[];
   subject: string;
-  body: string;
+  sender_body: string;
+  recipient_body: string;
+  cc_bodies?: { [deskId: string]: string }; // Map of CC deskId to encrypted body
   font_family?: string;
   font_size?: string;
   line_height?: string;
@@ -89,6 +92,7 @@ export interface LoginRequest {
 export interface LoginResponse {
   account: Account;
   token: string;
+  encrypted_priv_keys?: Record<string, string>; // Desk ID -> Encrypted private key (base64)
 }
 
 export interface CreateDeskRequest {
@@ -166,14 +170,18 @@ export interface CreateConversationRequest {
   via?: string[];
   cc?: string[];
   subject: string;
-  body: string;
+  sender_body: string; // Encrypted body for sender (encrypted with sender's keys)
+  recipient_body: string; // Encrypted body for recipient (encrypted with recipient's public key)
+  cc_bodies?: { [deskId: string]: string }; // Encrypted bodies for each CC recipient (map of deskId -> encrypted body)
   font_family?: string;
   font_size?: string;
   line_height?: string;
 }
 
 export interface ReplyToConversationRequest {
-  body: string;
+  sender_body: string; // Encrypted body for sender
+  recipient_body: string; // Encrypted body for recipient
+  cc_bodies?: { [deskId: string]: string }; // Encrypted bodies for each CC recipient
   is_ack?: boolean;
   cc?: string[];
   font_family?: string;

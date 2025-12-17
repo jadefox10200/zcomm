@@ -378,6 +378,33 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
       return;
     }
 
+    // Prevent sending a MIV to yourself
+    if (to === deskId) {
+      setFieldErrors({ to: true });
+      setError("You cannot send a message to yourself.");
+      return;
+    }
+
+    // Prevent CCing yourself
+    if (cc.includes(deskId)) {
+      const ccErrors = cc
+        .map((id, idx) => (id === deskId ? idx : -1))
+        .filter((idx) => idx !== -1);
+      setFieldErrors({ cc: ccErrors });
+      setError("You cannot CC yourself.");
+      return;
+    }
+
+    // Prevent via routing to yourself
+    if (via.includes(deskId)) {
+      const viaErrors = via
+        .map((id, idx) => (id === deskId ? idx : -1))
+        .filter((idx) => idx !== -1);
+      setFieldErrors({ via: viaErrors });
+      setError("You cannot route a message via yourself.");
+      return;
+    }
+
     // Validate CC if provided
     if (cc.length > 0) {
       const ccErrors: number[] = [];
@@ -413,22 +440,161 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
     setError(null);
 
     try {
+      // Get sender's private key for encryption
+      const { getPrivateKey, encryptMessage } = await import("../utils/crypto");
+
+      console.log("🔑 Looking for private key for desk:", deskId);
+      const senderPrivateKey = getPrivateKey(deskId);
+
+      if (!senderPrivateKey) {
+        console.error("❌ Private key not found for desk:", deskId);
+        console.log(
+          "📋 Available private keys in sessionStorage:",
+          Object.keys(sessionStorage).filter((k) => k.startsWith("privateKey_"))
+        );
+        throw new Error("Private key not found. Please log in again.");
+      }
+
+      console.log("✓ Private key found for desk:", deskId);
+
+      // Fetch sender's public key (for encrypting their own copy)
+      const senderPublicKeyResponse = await api.getDeskPublicKey(deskId);
+      const senderPublicKey = senderPublicKeyResponse.public_key;
+      console.log(
+        "📤 Sender public key:",
+        senderPublicKey.substring(0, 20) + "..."
+      );
+
+      // Determine the actual first recipient (via routing or direct)
+      // If via routing exists, encrypt for the first via recipient
+      // Otherwise, encrypt for the final recipient
+      const actualRecipient = via && via.length > 0 ? via[0] : to;
+      console.log(
+        "🎯 Actual first recipient:",
+        actualRecipient,
+        via && via.length > 0 ? "(via routing)" : "(direct)"
+      );
+
+      // Fetch recipient's public key (first via recipient or final recipient)
+      const recipientPublicKeyResponse = await api.getDeskPublicKey(
+        actualRecipient
+      );
+      const recipientPublicKey = recipientPublicKeyResponse.public_key;
+      console.log(
+        "📥 Recipient public key:",
+        recipientPublicKey.substring(0, 20) + "..."
+      );
+
+      console.log("🔑 Keys comparison:", {
+        senderPubKey: senderPublicKey.substring(0, 20),
+        recipientPubKey: recipientPublicKey.substring(0, 20),
+        areKeysIdentical: senderPublicKey === recipientPublicKey,
+      });
+
+      // Encrypt TWO copies:
+      // 1. Sender's copy: encrypted with sender's keys (sender can decrypt)
+      const senderEncryptedBody = encryptMessage(
+        body,
+        senderPublicKey,
+        senderPrivateKey
+      );
+      console.log(
+        "✓ Sender copy encrypted:",
+        senderEncryptedBody.substring(0, 40) + "..."
+      );
+
+      // 2. Recipient's copy: encrypted with recipient's public key + sender's private key
+      const recipientEncryptedBody = encryptMessage(
+        body,
+        recipientPublicKey,
+        senderPrivateKey
+      );
+      console.log(
+        "✓ Recipient copy encrypted:",
+        recipientEncryptedBody.substring(0, 40) + "..."
+      );
+
+      console.log("🔒 Encryption comparison:", {
+        senderBodyPrefix: senderEncryptedBody.substring(0, 40),
+        recipientBodyPrefix: recipientEncryptedBody.substring(0, 40),
+        areBodiesIdentical: senderEncryptedBody === recipientEncryptedBody,
+      });
+
+      // 3. Encrypt bodies for each CC recipient with their own public keys
+      const ccBodies: { [deskId: string]: string } = {};
+      if (cc && cc.length > 0) {
+        console.log("🔑 Starting CC encryption for recipients:", cc);
+        for (const ccDeskId of cc) {
+          if (ccDeskId) {
+            console.log(`🔍 Fetching public key for CC recipient: ${ccDeskId}`);
+            const ccPublicKeyResponse = await api.getDeskPublicKey(ccDeskId);
+            const ccPublicKey = ccPublicKeyResponse.public_key;
+            console.log(
+              `🔑 CC ${ccDeskId} public key:`,
+              ccPublicKey.substring(0, 20) + "..."
+            );
+            console.log(
+              `🔑 Recipient public key:`,
+              recipientPublicKey.substring(0, 20) + "..."
+            );
+            console.log(
+              `🔑 Keys are ${
+                ccPublicKey === recipientPublicKey
+                  ? "IDENTICAL ❌"
+                  : "DIFFERENT ✓"
+              }`
+            );
+
+            const ccEncryptedBody = encryptMessage(
+              body,
+              ccPublicKey,
+              senderPrivateKey
+            );
+            ccBodies[ccDeskId] = ccEncryptedBody;
+            console.log(
+              `✓ CC copy encrypted for ${ccDeskId}:`,
+              ccEncryptedBody.substring(0, 40) + "..."
+            );
+            console.log(
+              `📊 CC body === recipient body: ${
+                ccEncryptedBody === recipientEncryptedBody ? "YES ❌" : "NO ✓"
+              }`
+            );
+          }
+        }
+        console.log("🎯 Final ccBodies map:", Object.keys(ccBodies));
+      }
+
       const requestData = {
         to,
         cc: cc || undefined,
         via: via || undefined,
         subject,
-        body,
+        sender_body: senderEncryptedBody, // Sender's encrypted copy
+        recipient_body: recipientEncryptedBody, // Recipient's encrypted copy
+        cc_bodies: Object.keys(ccBodies).length > 0 ? ccBodies : undefined, // CC recipients' encrypted copies
         font_family: desk.font_family,
         font_size: desk.font_size,
         line_height: desk.line_height,
       };
-      console.log("DEBUG: Sending conversation request:", JSON.stringify(requestData));
+
+      console.log("📤 Sending request with cc_bodies:", {
+        hasCcBodies: !!requestData.cc_bodies,
+        ccBodyKeys: requestData.cc_bodies
+          ? Object.keys(requestData.cc_bodies)
+          : [],
+        ccBodyPreviews: requestData.cc_bodies
+          ? Object.entries(requestData.cc_bodies).map(([k, v]) => ({
+              deskId: k,
+              bodyPrefix: v.substring(0, 40) + "...",
+            }))
+          : [],
+      });
       await onSend(requestData);
       console.log("DEBUG: After send - desk settings were:", {
         font_family: desk.font_family,
         font_size: desk.font_size,
-        line_height: desk.line_height
+        line_height: desk.line_height,
       });
       // Reset form on success
       setTo("");
@@ -573,7 +739,7 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
   return (
     <div className="compose-miv">
       <div className="compose-header">
-        <h2>Compose New Miv</h2>
+        <h2>Compose New Despatch</h2>
       </div>
 
       <form onSubmit={handleSubmit} className="compose-form">
@@ -641,7 +807,7 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
             )}
           </div>
           <span className="help-text">
-            {to && contactSearchTerm && `mivID: ${formatPhoneId(to)}`}
+            {to && contactSearchTerm && `Despatch ID: ${formatPhoneId(to)}`}
             {to && !contactSearchTerm && `Sending to: ${formatPhoneId(to)}`}
             {!to && "Search for a contact or enter a 10-digit ID"}
           </span>
@@ -743,7 +909,7 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
               <span className="help-text">
                 {cc[index] &&
                   ccSearchTerms[index] &&
-                  `CC mivID: ${formatPhoneId(cc[index])}`}
+                  `CC Despatch ID: ${formatPhoneId(cc[index])}`}
                 {cc[index] &&
                   !ccSearchTerms[index] &&
                   `CC to: ${formatPhoneId(cc[index])}`}
@@ -851,7 +1017,7 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
               <span className="help-text">
                 {via[index] &&
                   viaSearchTerms[index] &&
-                  `Via mivID: ${formatPhoneId(via[index])}`}
+                  `Via Despatch ID: ${formatPhoneId(via[index])}`}
                 {via[index] &&
                   !viaSearchTerms[index] &&
                   `Via: ${formatPhoneId(via[index])}`}
@@ -995,7 +1161,7 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
             className="btn btn-primary"
             disabled={isSending}
           >
-            {isSending ? "Sending..." : "Send Miv"}
+            {isSending ? "Sending..." : "Send Despatch"}
           </button>
         </div>
       </form>
@@ -1072,7 +1238,7 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
                           <div className="contact-info">
                             <div className="contact-name">{contact.name}</div>
                             <div className="contact-id">
-                              mivID: {formatPhoneId(contact.desk_id_ref)}
+                              Despatch ID: {formatPhoneId(contact.desk_id_ref)}
                             </div>
                           </div>
                         </div>

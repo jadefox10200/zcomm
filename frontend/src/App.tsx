@@ -275,6 +275,35 @@ function App() {
     setToken(response.token);
     localStorage.setItem("account", JSON.stringify(response.account));
     localStorage.setItem("token", response.token);
+
+    // Decrypt and store private keys in sessionStorage for E2E encryption
+    if (response.encrypted_priv_keys) {
+      const { decryptPrivateKey, storePrivateKey } = await import(
+        "./utils/crypto"
+      );
+
+      console.log(
+        "🔐 Decrypting private keys for desks:",
+        Object.keys(response.encrypted_priv_keys)
+      );
+
+      for (const [deskId, encryptedKey] of Object.entries(
+        response.encrypted_priv_keys
+      )) {
+        try {
+          const decryptedKey = decryptPrivateKey(encryptedKey, password);
+          storePrivateKey(deskId, decryptedKey);
+          console.log(`✓ Private key decrypted and stored for desk: ${deskId}`);
+        } catch (err) {
+          console.error(
+            `❌ Failed to decrypt private key for desk ${deskId}:`,
+            err
+          );
+        }
+      }
+    } else {
+      console.warn("⚠️ No encrypted_priv_keys in login response");
+    }
   };
 
   const handleRegister = async (request: RegisterRequest) => {
@@ -289,6 +318,17 @@ function App() {
     // Clear authentication state
     setAccount(null);
     setToken(null);
+
+    // Clear ALL encryption keys from sessionStorage
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const key = sessionStorage.key(i);
+      if (key && key.startsWith("privateKey_")) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach((key) => sessionStorage.removeItem(key));
+    console.log("🔐 Cleared", keysToRemove.length, "private keys from memory");
 
     // Clear desk state
     setDesks([]);
@@ -320,6 +360,11 @@ function App() {
     // Clear local storage
     localStorage.removeItem("account");
     localStorage.removeItem("token");
+
+    // Clear private keys from sessionStorage (E2E encryption)
+    import("./utils/crypto").then(({ clearAllPrivateKeys }) => {
+      clearAllPrivateKeys();
+    });
   };
 
   const handleCreateDesk = async (name: string) => {
@@ -441,14 +486,113 @@ function App() {
     if (!activeDesk || !selectedMiv) return;
 
     try {
+      // Get sender's private key for encryption
+      const { getPrivateKey, encryptMessage } = await import("./utils/crypto");
+      const senderPrivateKey = getPrivateKey(activeDesk.id);
+
+      if (!senderPrivateKey) {
+        throw new Error("Private key not found. Please log in again.");
+      }
+
+      // Determine recipient (the person we're replying to)
+      // For via routing: reply to the person who forwarded to you
+      // For direct messages: reply to the sender
+      let recipientId: string;
+      if (selectedMiv.via && selectedMiv.via.length > 0) {
+        // This message went through via routing
+        // Find current user's position in the chain
+        const myPosition = selectedMiv.via.indexOf(activeDesk.id);
+        if (myPosition > 0) {
+          // Current user is not the first via recipient
+          // Reply to the previous via recipient who forwarded to me
+          recipientId = selectedMiv.via[myPosition - 1];
+          console.log(
+            `📨 Reply via routing: replying to previous via recipient (via[${
+              myPosition - 1
+            }]):`,
+            recipientId
+          );
+        } else if (myPosition === -1 && activeDesk.id === selectedMiv.to) {
+          // Current user is the final recipient (not in via chain)
+          // Reply to the last via recipient who forwarded to me
+          recipientId = selectedMiv.via[selectedMiv.via.length - 1];
+          console.log(
+            "📨 Reply as final recipient: replying to last via recipient:",
+            recipientId
+          );
+        } else {
+          // Current user is the first via recipient
+          // Reply to the original sender
+          recipientId =
+            selectedMiv.from === activeDesk.id
+              ? selectedMiv.to
+              : selectedMiv.from;
+          console.log(
+            "📨 Reply as first via recipient: replying to sender:",
+            recipientId
+          );
+        }
+      } else {
+        // Direct message, no via routing
+        recipientId =
+          selectedMiv.from === activeDesk.id
+            ? selectedMiv.to
+            : selectedMiv.from;
+        console.log("📨 Direct reply: replying to", recipientId);
+      }
+
+      // Fetch sender's public key (for encrypting their own copy)
+      const senderPublicKeyResponse = await api.getDeskPublicKey(activeDesk.id);
+      const senderPublicKey = senderPublicKeyResponse.public_key;
+
+      // Fetch recipient's public key
+      const recipientPublicKeyResponse = await api.getDeskPublicKey(
+        recipientId
+      );
+      const recipientPublicKey = recipientPublicKeyResponse.public_key;
+
+      // Encrypt TWO copies:
+      // 1. Sender's copy: encrypted with sender's keys
+      const senderEncryptedBody = encryptMessage(
+        body,
+        senderPublicKey,
+        senderPrivateKey
+      );
+
+      // 2. Recipient's copy: encrypted with recipient's public key
+      const recipientEncryptedBody = encryptMessage(
+        body,
+        recipientPublicKey,
+        senderPrivateKey
+      );
+
+      // Handle CCs: encrypt for each CC recipient if present
+      let ccBodies: { [deskId: string]: string } | undefined = undefined;
+      if (selectedMiv.cc && selectedMiv.cc.length > 0) {
+        ccBodies = {};
+        // Fetch all CC public keys in parallel
+        const ccPublicKeys = await Promise.all(
+          selectedMiv.cc.map(async (ccId) => {
+            const res = await api.getDeskPublicKey(ccId);
+            return { ccId, publicKey: res.public_key };
+          })
+        );
+        for (const { ccId, publicKey } of ccPublicKeys) {
+          // Encrypt the reply/ACK for each CC recipient
+          ccBodies[ccId] = encryptMessage(body, publicKey, senderPrivateKey);
+        }
+      }
+
       await api.replyToConversation(
         selectedMiv.conversation_id,
         activeDesk.id,
         {
-          body,
+          sender_body: senderEncryptedBody, // Sender's encrypted copy
+          recipient_body: recipientEncryptedBody, // Recipient's encrypted copy
           is_ack: isAck,
           font_family: activeDesk.font_family,
           font_size: activeDesk.font_size,
+          cc_bodies: ccBodies,
         }
       );
 
@@ -520,13 +664,15 @@ function App() {
     if (!activeDesk) return;
 
     try {
-      // Convert CreateMivRequest to CreateConversationRequest (they have the same fields now)
+      // Convert CreateMivRequest to CreateConversationRequest
       const conversationRequest = {
         to: request.to,
         cc: request.cc,
         via: request.via,
         subject: request.subject,
-        body: request.body,
+        sender_body: request.sender_body,
+        recipient_body: request.recipient_body,
+        cc_bodies: request.cc_bodies, // Include CC-specific encrypted bodies
         font_family: request.font_family,
         font_size: request.font_size,
         line_height: request.line_height,

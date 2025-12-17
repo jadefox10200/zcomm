@@ -12,6 +12,7 @@
     "@ckeditor/ckeditor5-react": "^11.0.0",
     "@ckeditor/ckeditor5-table": "^47.2.0",
     "@hookform/resolvers": "^5.2.2",
+    "@noble/hashes": "^2.0.1",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.0",
@@ -26,6 +27,8 @@
     "react-scripts": "5.0.1",
     "semantic-ui-css": "^2.5.0",
     "semantic-ui-react": "^2.1.5",
+    "tweetnacl": "^1.0.3",
+    "tweetnacl-util": "^0.15.1",
     "typescript": "^4.9.5",
     "web-vitals": "^2.1.4",
     "yup": "^1.7.1"

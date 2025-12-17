@@ -88,7 +88,7 @@ function BasketView({
 
               // Filter based on miv state from backend
               if (miv.state !== selectedBasket) return false;
-
+              console.log("MIV CHECK: ", miv.id, miv.state, selectedBasket);
               // Exclude deleted mivs from basket views (only affects ACKs)
               if (miv.deleted) return false;
 
