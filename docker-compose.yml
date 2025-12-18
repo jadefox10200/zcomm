@@ -10,7 +10,7 @@ services:
     environment:
       - API_ENV=production
     ports:
-      - "8080:8080" # or use 8443 with HTTPS (see instructions)
+      - "8443:8443" # or use 8443 with HTTPS (see instructions)
   frontend:
     build: ./frontend
     container_name: zcomm-frontend
