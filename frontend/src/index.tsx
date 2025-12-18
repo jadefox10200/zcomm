@@ -32,7 +32,6 @@ function RootSwitcher() {
   return <LandingPage onLoginClick={() => setShowApp(true)} />;
 }
 
-
 root.render(
   <React.StrictMode>
     <RootSwitcher />
@@ -40,4 +39,5 @@ root.render(
 );
 
 // Register service worker for PWA support
-serviceWorkerRegistration.register();
+// serviceWorkerRegistration.register();
+// serviceWorkerRegistration.unregister();
