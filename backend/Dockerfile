@@ -23,6 +23,9 @@ WORKDIR /app
 # Add runtime sqlite libs
 RUN apk add --no-cache sqlite-libs
 
+# Create data directory for database
+RUN mkdir -p /app/data
+
 COPY --from=builder /app/zcomm .
 
 CMD ["./zcomm"]
