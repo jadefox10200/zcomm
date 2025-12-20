@@ -125,18 +125,10 @@ func (s *Server) registerAccount(c *gin.Context) {
 		return
 	}
 
-	// Generate token
-	token, err := crypto.GenerateToken()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
-		return
-	}
-	// Store token -> account ID
-	tokenStore[token] = account.ID
-
-	c.JSON(http.StatusCreated, models.LoginResponse{
-		Account: account,
-		Token:   token,
+	// Return success message - user needs to login
+	c.JSON(http.StatusCreated, gin.H{
+		"message":  "Account created successfully. Please login.",
+		"username": account.Username,
 	})
 }
 
