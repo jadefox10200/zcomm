@@ -305,10 +305,10 @@ function App() {
 
   const handleRegister = async (request: RegisterRequest) => {
     const response = await api.register(request);
-    setAccount(response.account);
-    setToken(response.token);
-    localStorage.setItem("account", JSON.stringify(response.account));
-    localStorage.setItem("token", response.token);
+    // Registration successful - show success message
+    // User needs to login manually now
+    alert(response.message || "Registration successful! Please login.");
+    // Don't set account/token - user must login
   };
 
   const handleLogout = () => {

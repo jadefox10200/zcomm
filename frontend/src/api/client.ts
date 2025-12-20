@@ -6,6 +6,7 @@ import {
   Account,
   Desk,
   RegisterRequest,
+  RegisterResponse,
   LoginRequest,
   LoginResponse,
   CreateDeskRequest,
@@ -143,7 +144,7 @@ export const getArchived = async (): Promise<Miv[]> => {
 
 export const register = async (
   request: RegisterRequest
-): Promise<LoginResponse> => {
+): Promise<RegisterResponse> => {
   const response = await fetch(`${API_BASE_URL}/accounts/register`, {
     method: "POST",
     headers: {

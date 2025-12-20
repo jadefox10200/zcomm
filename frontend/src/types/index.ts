@@ -95,6 +95,11 @@ export interface LoginResponse {
   encrypted_priv_keys?: Record<string, string>; // Desk ID -> Encrypted private key (base64)
 }
 
+export interface RegisterResponse {
+  message: string;
+  username: string;
+}
+
 export interface CreateDeskRequest {
   name: string;
 }
