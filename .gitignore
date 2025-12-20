@@ -11,8 +11,8 @@
 vendor/
 
 # Backend build
-backend/missiv
-backend/missiv-server
+backend/zcomm
+backend/data
 backend/tmp/
 
 # Frontend

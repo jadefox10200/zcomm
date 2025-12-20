@@ -79,7 +79,7 @@ type Server struct {
 // NewServer creates a new API server with SQLite storage
 func NewServer() *Server {
 	// Use SQLite storage for persistent data
-	sqliteStorage, err := storage.NewSQLiteStorage("./zcomm.db")
+	sqliteStorage, err := storage.NewSQLiteStorage("./data/zcomm.db")
 	if err != nil {
 		panic("Failed to initialize SQLite storage: " + err.Error())
 	}

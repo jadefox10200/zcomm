@@ -5,6 +5,7 @@ services:
     container_name: zcomm-backend
     restart: always
     volumes:
+      - ./backend/data:/app/data
       - /etc/letsencrypt/live/zcommapp.com/fullchain.pem:/app/server.crt:ro
       - /etc/letsencrypt/live/zcommapp.com/privkey.pem:/app/server.key:ro
     environment:
