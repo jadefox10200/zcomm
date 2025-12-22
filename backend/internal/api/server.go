@@ -130,54 +130,59 @@ func (s *Server) setupRoutes() {
 
 	api := s.router.Group("/api")
 	{
-		// Account endpoints (authentication)
+		// Public endpoints (no auth required)
 		api.POST("/accounts/register", s.registerAccount)
 		api.POST("/accounts/login", s.loginAccount)
 		api.POST("/accounts/recover-password", s.recoverPassword)
+	}
 
+	// Protected endpoints (auth required)
+	protected := s.router.Group("/api")
+	protected.Use(authMiddleware())
+	{
 		// Desk endpoints
-		api.GET("/desks", s.listDesks)
-		api.POST("/desks", s.createDesk)
-		api.PUT("/desks/:desk_id", s.updateDesk)
-		api.POST("/desks/switch", s.switchDesk)
-		api.GET("/desks/:desk_id/public-key", s.getDeskPublicKey)     // Get public key for encryption
-		api.POST("/desks/public-keys", s.getBatchDeskPublicKeys)       // Batch get public keys
+		protected.GET("/desks", s.listDesks)
+		protected.POST("/desks", s.createDesk)
+		protected.PUT("/desks/:desk_id", s.updateDesk)
+		protected.POST("/desks/switch", s.switchDesk)
+		protected.GET("/desks/:desk_id/public-key", s.getDeskPublicKey)     // Get public key for encryption
+		protected.POST("/desks/public-keys", s.getBatchDeskPublicKeys)       // Batch get public keys
 
 		// Conversation endpoints
-		api.GET("/conversations", s.listConversations)
-		api.GET("/conversations/archived", s.listArchivedConversations)
-		api.GET("/conversations/:id", s.getConversation)
-		api.POST("/conversations", s.createConversation)
-		api.POST("/conversations/:id/reply", s.replyToConversation)
-		api.POST("/conversations/:id/archive", s.archiveConversation)
-		api.DELETE("/conversations/:id", s.deleteConversation)
-		api.POST("/conversations/:id/cc/answer", s.answerCcMiv)
-		api.POST("/conversations/:id/cc/delete", s.deleteCcMiv)
+		protected.GET("/conversations", s.listConversations)
+		protected.GET("/conversations/archived", s.listArchivedConversations)
+		protected.GET("/conversations/:id", s.getConversation)
+		protected.POST("/conversations", s.createConversation)
+		protected.POST("/conversations/:id/reply", s.replyToConversation)
+		protected.POST("/conversations/:id/archive", s.archiveConversation)
+		protected.DELETE("/conversations/:id", s.deleteConversation)
+		protected.POST("/conversations/:id/cc/answer", s.answerCcMiv)
+		protected.POST("/conversations/:id/cc/delete", s.deleteCcMiv)
 
 		// Miv read endpoints
-		api.POST("/mivs/:id/read", s.markMivAsRead)
-		api.POST("/mivs/:id/forget", s.forgetMiv)
+		protected.POST("/mivs/:id/read", s.markMivAsRead)
+		protected.POST("/mivs/:id/forget", s.forgetMiv)
 
 		// Via routing endpoints
-		api.POST("/mivs/:id/via/approve", s.approveViaRouting)
-		api.POST("/mivs/:id/via/reject", s.rejectViaRouting)
+		protected.POST("/mivs/:id/via/approve", s.approveViaRouting)
+		protected.POST("/mivs/:id/via/reject", s.rejectViaRouting)
 
 		// Notification endpoints
-		api.GET("/notifications", s.listNotifications)
-		api.POST("/notifications/:id/read", s.markNotificationAsRead)
+		protected.GET("/notifications", s.listNotifications)
+		protected.POST("/notifications/:id/read", s.markNotificationAsRead)
 
 		// Contact endpoints
-		api.GET("/desks/:desk_id/contacts", s.listContacts)
-		api.POST("/desks/:desk_id/contacts", s.createContact)
-		api.GET("/contacts/:contact_id", s.getContact)
-		api.PUT("/contacts/:contact_id", s.updateContact)
-		api.DELETE("/contacts/:contact_id", s.deleteContact)
+		protected.GET("/desks/:desk_id/contacts", s.listContacts)
+		protected.POST("/desks/:desk_id/contacts", s.createContact)
+		protected.GET("/contacts/:contact_id", s.getContact)
+		protected.PUT("/contacts/:contact_id", s.updateContact)
+		protected.DELETE("/contacts/:contact_id", s.deleteContact)
 
 		// Upload endpoint
-		api.POST("/upload", s.uploadFile)
+		protected.POST("/upload", s.uploadFile)
 
 		// Legacy Identity endpoints (for backward compatibility)
-		api.GET("/identity", s.getIdentity)
+		protected.GET("/identity", s.getIdentity)
 		api.POST("/identity", s.createIdentity)
 		api.GET("/identity/publickey", s.getPublicKey)
 

@@ -23,6 +23,31 @@ import (
 
 // In-memory token store for mapping tokens to account IDs (for demo/prototype only)
 var tokenStore = make(map[string]string)
+
+// authMiddleware validates the Authorization header and extracts account ID
+func authMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Missing or invalid Authorization header"})
+			c.Abort()
+			return
+		}
+
+		token := strings.TrimPrefix(authHeader, "Bearer ")
+		accountID, ok := tokenStore[token]
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
+			c.Abort()
+			return
+		}
+
+		// Store account ID in context for handlers to use
+		c.Set("account_id", accountID)
+		c.Next()
+	}
+}
+
 const (
 	maxFileSize         = 10 * 1024 * 1024 // 10MB
 	maxFileExtLength    = 10               // Maximum length for file extension
@@ -366,16 +391,10 @@ func (s *Server) updateDesk(c *gin.Context) {
 		return
 	}
 
-	// --- AUTHORIZATION: Extract token and check desk ownership ---
-	authHeader := c.GetHeader("Authorization")
-	if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Missing or invalid Authorization header"})
-		return
-	}
-	token := strings.TrimPrefix(authHeader, "Bearer ")
-	accountID, ok := tokenStore[token]
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
+	// Get account ID from middleware
+	accountID, exists := c.Get("account_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Not authenticated"})
 		return
 	}
 
@@ -385,7 +404,7 @@ func (s *Server) updateDesk(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Desk not found"})
 		return
 	}
-	if desk.AccountID != accountID {
+	if desk.AccountID != accountID.(string) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "You do not own this desk"})
 		return
 	}
