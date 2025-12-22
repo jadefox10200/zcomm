@@ -28,6 +28,28 @@ import {
 const API_BASE_URL =
   process.env.REACT_APP_API_URL || "http://localhost:8080/api";
 
+// Helper to get auth headers
+const getAuthHeaders = (): HeadersInit => {
+  const token = localStorage.getItem("token");
+  const headers: HeadersInit = {
+    "Content-Type": "application/json",
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  return headers;
+};
+
+// Helper to handle auth errors
+const handleAuthError = (response: Response) => {
+  if (response.status === 401) {
+    localStorage.removeItem("token");
+    localStorage.removeItem("account");
+    window.location.href = "/";
+    throw new Error("Session expired. Please login again.");
+  }
+};
+
 // Identity API
 export const getIdentity = async (): Promise<Identity> => {
   const response = await fetch(`${API_BASE_URL}/identity`);
@@ -230,12 +252,11 @@ export const updateDesk = async (
 ): Promise<Desk> => {
   const response = await fetch(`${API_BASE_URL}/desks/${deskId}`, {
     method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: getAuthHeaders(),
     body: JSON.stringify(request),
   });
   if (!response.ok) {
+    handleAuthError(response);
     throw new Error("Failed to update desk");
   }
   return response.json();

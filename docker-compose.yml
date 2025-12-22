@@ -19,11 +19,13 @@ services:
 
   nginx:
     image: nginx:alpine
+    container_name: zcomm-nginx
     restart: always
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./frontend/build:/usr/share/nginx/html:ro
       - /etc/letsencrypt:/etc/letsencrypt
+    volumes_from:
+      - frontend:ro
     ports:
       - "80:80"
       - "443:443"
