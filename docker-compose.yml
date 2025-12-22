@@ -12,10 +12,6 @@ services:
       - API_ENV=production
     ports:
       - "8080:8080" # or use 8443 with HTTPS (see instructions)
-  frontend:
-    build: ./frontend
-    container_name: zcomm-frontend
-    restart: always
 
   nginx:
     image: nginx:alpine
@@ -23,12 +19,10 @@ services:
     restart: always
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./frontend/build:/usr/share/nginx/html:ro
       - /etc/letsencrypt:/etc/letsencrypt
-    volumes_from:
-      - frontend:ro
     ports:
       - "80:80"
       - "443:443"
     depends_on:
       - backend
-      - frontend
