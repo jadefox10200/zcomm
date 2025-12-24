@@ -199,8 +199,11 @@ export const login = async (request: LoginRequest): Promise<LoginResponse> => {
 // Desk API
 
 export const listDesks = async (accountId: string): Promise<Desk[]> => {
-  const response = await fetch(`${API_BASE_URL}/desks?account_id=${accountId}`);
+  const response = await fetch(`${API_BASE_URL}/desks?account_id=${accountId}`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) {
+    handleAuthError(response);
     throw new Error("Failed to fetch desks");
   }
   return response.json();
@@ -214,13 +217,12 @@ export const createDesk = async (
     `${API_BASE_URL}/desks?account_id=${accountId}`,
     {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: getAuthHeaders(),
       body: JSON.stringify(request),
     }
   );
   if (!response.ok) {
+    handleAuthError(response);
     throw new Error("Failed to create desk");
   }
   return response.json();
@@ -234,13 +236,12 @@ export const switchDesk = async (
     `${API_BASE_URL}/desks/switch?account_id=${accountId}`,
     {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: getAuthHeaders(),
       body: JSON.stringify(request),
     }
   );
   if (!response.ok) {
+    handleAuthError(response);
     throw new Error("Failed to switch desk");
   }
   return response.json();
@@ -267,8 +268,11 @@ export const updateDesk = async (
 export const getDeskPublicKey = async (
   deskId: string
 ): Promise<{ desk_id: string; public_key: string }> => {
-  const response = await fetch(`${API_BASE_URL}/desks/${deskId}/public-key`);
+  const response = await fetch(`${API_BASE_URL}/desks/${deskId}/public-key`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) {
+    handleAuthError(response);
     throw new Error("Failed to fetch public key");
   }
   return response.json();
@@ -279,12 +283,11 @@ export const getBatchDeskPublicKeys = async (
 ): Promise<{ public_keys: Record<string, string> }> => {
   const response = await fetch(`${API_BASE_URL}/desks/public-keys`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: getAuthHeaders(),
     body: JSON.stringify({ desk_ids: deskIds }),
   });
   if (!response.ok) {
+    handleAuthError(response);
     throw new Error("Failed to fetch public keys");
   }
   return response.json();
@@ -296,9 +299,11 @@ export const listConversations = async (
   deskId: string
 ): Promise<ListConversationsResponse> => {
   const response = await fetch(
-    `${API_BASE_URL}/conversations?desk_id=${deskId}`
+    `${API_BASE_URL}/conversations?desk_id=${deskId}`,
+    { headers: getAuthHeaders() }
   );
   if (!response.ok) {
+    handleAuthError(response);
     throw new Error("Failed to fetch conversations");
   }
   return response.json();
@@ -308,9 +313,11 @@ export const listArchivedConversations = async (
   deskId: string
 ): Promise<ListConversationsResponse> => {
   const response = await fetch(
-    `${API_BASE_URL}/conversations/archived?desk_id=${deskId}`
+    `${API_BASE_URL}/conversations/archived?desk_id=${deskId}`,
+    { headers: getAuthHeaders() }
   );
   if (!response.ok) {
+    handleAuthError(response);
     throw new Error("Failed to fetch archived conversations");
   }
   return response.json();
@@ -323,8 +330,9 @@ export const getConversation = async (
   const url = deskId
     ? `${API_BASE_URL}/conversations/${id}?desk_id=${deskId}`
     : `${API_BASE_URL}/conversations/${id}`;
-  const response = await fetch(url);
+  const response = await fetch(url, { headers: getAuthHeaders() });
   if (!response.ok) {
+    handleAuthError(response);
     throw new Error("Failed to fetch conversation");
   }
   return response.json();
@@ -338,13 +346,12 @@ export const createConversation = async (
     `${API_BASE_URL}/conversations?desk_id=${deskId}`,
     {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: getAuthHeaders(),
       body: JSON.stringify(request),
     }
   );
   if (!response.ok) {
+    handleAuthError(response);
     // Try to parse error message from response
     const errorData = await response
       .json()
@@ -363,13 +370,12 @@ export const replyToConversation = async (
     `${API_BASE_URL}/conversations/${conversationId}/reply?desk_id=${deskId}`,
     {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: getAuthHeaders(),
       body: JSON.stringify(request),
     }
   );
   if (!response.ok) {
+    handleAuthError(response);
     throw new Error("Failed to reply to conversation");
   }
 };
@@ -382,12 +388,11 @@ export const archiveConversation = async (
     `${API_BASE_URL}/conversations/${conversationId}/archive`,
     {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: getAuthHeaders(),
     }
   );
   if (!response.ok) {
+    handleAuthError(response);
     throw new Error("Failed to archive conversation");
   }
 };
@@ -400,12 +405,11 @@ export const deleteConversation = async (
     `${API_BASE_URL}/conversations/${conversationId}?desk_id=${deskId}`,
     {
       method: "DELETE",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: getAuthHeaders(),
     }
   );
   if (!response.ok) {
+    handleAuthError(response);
     throw new Error("Failed to delete conversation");
   }
 };
@@ -419,12 +423,11 @@ export const answerCcMiv = async (
     `${API_BASE_URL}/conversations/${conversationId}/cc/answer?desk_id=${deskId}`,
     {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: getAuthHeaders(),
     }
   );
   if (!response.ok) {
+    handleAuthError(response);
     throw new Error("Failed to answer CC");
   }
   return response.json();
@@ -438,12 +441,11 @@ export const deleteCcMiv = async (
     `${API_BASE_URL}/conversations/${conversationId}/cc/delete?desk_id=${deskId}`,
     {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: getAuthHeaders(),
     }
   );
   if (!response.ok) {
+    handleAuthError(response);
     throw new Error("Failed to delete CC");
   }
 };
@@ -458,11 +460,10 @@ export const markMivAsRead = async (
     : `${API_BASE_URL}/mivs/${mivId}/read`;
   const response = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: getAuthHeaders(),
   });
   if (!response.ok) {
+    handleAuthError(response);
     throw new Error("Failed to mark miv as read");
   }
   return response.json();
@@ -472,11 +473,10 @@ export const markMivAsRead = async (
 export const forgetMiv = async (mivId: string): Promise<void> => {
   const response = await fetch(`${API_BASE_URL}/mivs/${mivId}/forget`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: getAuthHeaders(),
   });
   if (!response.ok) {
+    handleAuthError(response);
     throw new Error("Failed to forget miv");
   }
 };
@@ -491,15 +491,14 @@ export const approveViaRouting = async (
     `${API_BASE_URL}/mivs/${mivId}/via/approve?desk_id=${deskId}`,
     {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: getAuthHeaders(),
       body: JSON.stringify({
         next_recipient_body: nextRecipientBody,
       }),
     }
   );
   if (!response.ok) {
+    handleAuthError(response);
     throw new Error("Failed to approve via routing");
   }
   return response.json();
@@ -515,13 +514,12 @@ export const rejectViaRouting = async (
     `${API_BASE_URL}/mivs/${mivId}/via/reject?desk_id=${deskId}`,
     {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: getAuthHeaders(),
       body: JSON.stringify({ reason, recipient_body: recipientBody }),
     }
   );
   if (!response.ok) {
+    handleAuthError(response);
     throw new Error("Failed to reject via routing");
   }
   return response.json();
@@ -536,8 +534,9 @@ export const listNotifications = async (
   const url = `${API_BASE_URL}/notifications?desk_id=${deskId}${
     unreadOnly ? "&unread_only=true" : ""
   }`;
-  const response = await fetch(url);
+  const response = await fetch(url, { headers: getAuthHeaders() });
   if (!response.ok) {
+    handleAuthError(response);
     throw new Error("Failed to fetch notifications");
   }
   return response.json();
@@ -550,12 +549,11 @@ export const markNotificationAsRead = async (
     `${API_BASE_URL}/notifications/${notificationId}/read`,
     {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: getAuthHeaders(),
     }
   );
   if (!response.ok) {
+    handleAuthError(response);
     throw new Error("Failed to mark notification as read");
   }
 };
@@ -565,8 +563,11 @@ export const markNotificationAsRead = async (
 export const listContacts = async (
   deskId: string
 ): Promise<ListContactsResponse> => {
-  const response = await fetch(`${API_BASE_URL}/desks/${deskId}/contacts`);
+  const response = await fetch(`${API_BASE_URL}/desks/${deskId}/contacts`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) {
+    handleAuthError(response);
     throw new Error("Failed to fetch contacts");
   }
   return response.json();
@@ -578,12 +579,11 @@ export const createContact = async (
 ): Promise<Contact> => {
   const response = await fetch(`${API_BASE_URL}/desks/${deskId}/contacts`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: getAuthHeaders(),
     body: JSON.stringify(request),
   });
   if (!response.ok) {
+    handleAuthError(response);
     const error = await response.json();
     throw new Error(error.error || "Failed to create contact");
   }
@@ -591,8 +591,11 @@ export const createContact = async (
 };
 
 export const getContact = async (contactId: string): Promise<Contact> => {
-  const response = await fetch(`${API_BASE_URL}/contacts/${contactId}`);
+  const response = await fetch(`${API_BASE_URL}/contacts/${contactId}`, {
+    headers: getAuthHeaders(),
+  });
   if (!response.ok) {
+    handleAuthError(response);
     throw new Error("Failed to fetch contact");
   }
   return response.json();
@@ -604,12 +607,11 @@ export const updateContact = async (
 ): Promise<Contact> => {
   const response = await fetch(`${API_BASE_URL}/contacts/${contactId}`, {
     method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: getAuthHeaders(),
     body: JSON.stringify(request),
   });
   if (!response.ok) {
+    handleAuthError(response);
     const error = await response.json();
     throw new Error(error.error || "Failed to update contact");
   }
@@ -619,8 +621,10 @@ export const updateContact = async (
 export const deleteContact = async (contactId: string): Promise<void> => {
   const response = await fetch(`${API_BASE_URL}/contacts/${contactId}`, {
     method: "DELETE",
+    headers: getAuthHeaders(),
   });
   if (!response.ok) {
+    handleAuthError(response);
     throw new Error("Failed to delete contact");
   }
 };
