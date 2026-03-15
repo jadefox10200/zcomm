@@ -12,6 +12,9 @@ function Auth({ onLogin, onRegister }: AuthProps) {
   const [isRecovery, setIsRecovery] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [displayName, setDisplayName] = useState('');
   const [birthday, setBirthday] = useState('');
   const [firstPetName, setFirstPetName] = useState('');
@@ -37,6 +40,12 @@ function Auth({ onLogin, onRegister }: AuthProps) {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    if (password !== confirmPassword) {
+      setError('Passwords do not match. Please try again.');
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -260,14 +269,45 @@ function Auth({ onLogin, onRegister }: AuthProps) {
             </div>
             <div className="form-group">
               <label>Password</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Choose a password (min 8 characters)"
-                required
-                minLength={8}
-              />
+              <div className="password-input-wrapper">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Choose a password (min 8 characters)"
+                  required
+                  minLength={8}
+                />
+                <button
+                  type="button"
+                  className="password-toggle"
+                  onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? '🙈' : '👁'}
+                </button>
+              </div>
+            </div>
+            <div className="form-group">
+              <label>Confirm Password</label>
+              <div className="password-input-wrapper">
+                <input
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Re-enter your password"
+                  required
+                  minLength={8}
+                />
+                <button
+                  type="button"
+                  className="password-toggle"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showConfirmPassword ? '🙈' : '👁'}
+                </button>
+              </div>
             </div>
             
             <h4 style={{ marginTop: '20px', marginBottom: '10px' }}>Security Questions</h4>
@@ -304,6 +344,13 @@ function Auth({ onLogin, onRegister }: AuthProps) {
                 placeholder="Your mother's maiden name"
                 required
               />
+            </div>
+            <div className="encryption-warning">
+              <strong>⚠️ Important:</strong> All messages are end-to-end encrypted and your
+              password is the <strong>only</strong> method of decryption. If you forget your
+              password, there is no way to recover your old messages — we do not have access to
+              your content. You can always change your password, but a forgotten password means
+              your message history cannot be restored.
             </div>
             <button type="submit" className="btn btn-primary" disabled={loading}>
               {loading ? 'Creating account...' : 'Create Account'}

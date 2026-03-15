@@ -68,6 +68,7 @@ function App() {
 
   // Notification state
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [unreadCount, setUnreadCount] = useState(0);
 
   // Toast state
@@ -917,6 +918,7 @@ function App() {
             >
               👥 Contacts
             </button>
+            {/* Notifications sidebar button is temporarily hidden until the feature is fixed
             <button
               className={currentView === "notifications" ? "active" : ""}
               onClick={() => {
@@ -928,6 +930,7 @@ function App() {
               🔔 Notifications
               {unreadCount > 0 && <span className="badge">{unreadCount}</span>}
             </button>
+            */}
           </div>
 
           <div className="nav-section">
