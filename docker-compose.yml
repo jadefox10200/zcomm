@@ -6,12 +6,10 @@ services:
     restart: always
     volumes:
       - ./backend/data:/app/data
-      - /etc/letsencrypt/live/zcommapp.com/fullchain.pem:/app/server.crt:ro
-      - /etc/letsencrypt/live/zcommapp.com/privkey.pem:/app/server.key:ro
     environment:
       - API_ENV=production
     ports:
-      - "8080:8080" # or use 8443 with HTTPS (see instructions)
+      - "8080:8080"
 
   nginx:
     image: nginx:alpine
@@ -20,9 +18,24 @@ services:
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - ./frontend/build:/usr/share/nginx/html:ro
-      - /etc/letsencrypt:/etc/letsencrypt
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - certbot-webroot:/var/www/certbot
     ports:
       - "80:80"
       - "443:443"
     depends_on:
       - backend
+
+  certbot:
+    image: certbot/certbot
+    container_name: zcomm-certbot
+    restart: unless-stopped
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt
+      - certbot-webroot:/var/www/certbot
+    # Attempt renewal every 12 hours; certbot skips if the cert is still fresh
+    entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $$!; done"
+
+volumes:
+  # Shared webroot volume used by Nginx and certbot for ACME domain-verification challenge files
+  certbot-webroot:
