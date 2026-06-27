@@ -24,23 +24,23 @@ function ConversationItem({
       }`}
       onClick={onClick}
     >
-      {/* Single-row format: FROM (partner) • DATE/TIME (range) • SUBJECT • COUNT */}
       <div className="conversation-item-row">
-        <span className="conversation-partner">{partnerName}</span>
-        <span className="conversation-separator">•</span>
-        <span className="conversation-date-range">
-          {formatDate(conversation.conversation.created_at)} -{" "}
-          {formatDate(conversation.conversation.updated_at)}
-        </span>
-        <span className="conversation-separator">•</span>
-        <span className="conversation-subject">
-          {conversation.conversation.subject}
-        </span>
-        <span className="conversation-separator">•</span>
-        <span className="conversation-miv-count">
-          {conversation.latest_miv?.seq_no || 0}{" "}
-          {conversation.latest_miv?.seq_no === 1 ? "miv" : "mivs"}
-        </span>
+        <div className="conversation-item-main">
+          <span className="conversation-partner">{partnerName}</span>
+          <span className="conversation-subject">
+            {conversation.conversation.subject}
+          </span>
+        </div>
+        <div className="conversation-item-meta">
+          <span className="conversation-date-range">
+            {formatDate(conversation.conversation.created_at)} -{" "}
+            {formatDate(conversation.conversation.updated_at)}
+          </span>
+          <span className="conversation-miv-count">
+            {conversation.latest_miv?.seq_no || 0}{" "}
+            {conversation.latest_miv?.seq_no === 1 ? "miv" : "mivs"}
+          </span>
+        </div>
       </div>
     </div>
   );

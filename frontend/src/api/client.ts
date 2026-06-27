@@ -23,10 +23,34 @@ import {
   UpdateContactRequest,
   ListContactsResponse,
 } from "../types";
+import { Capacitor } from "@capacitor/core";
 
-// Use environment variable or default to localhost backend for development
-const API_BASE_URL =
-  process.env.REACT_APP_API_URL || "http://localhost:8080/api";
+const normalizeBaseUrl = (url: string): string => url.replace(/\/+$/, "");
+
+const isAbsoluteHttpUrl = (url: string): boolean => /^https?:\/\//i.test(url);
+
+const resolveApiBaseUrl = (): string => {
+  const envUrl = process.env.REACT_APP_API_URL?.trim();
+  const isNativeRuntime = Capacitor.isNativePlatform();
+
+  if (envUrl) {
+    if (isAbsoluteHttpUrl(envUrl)) {
+      return normalizeBaseUrl(envUrl);
+    }
+
+    if (isNativeRuntime && envUrl.startsWith("/")) {
+      return normalizeBaseUrl(`https://zcommapp.com${envUrl}`);
+    }
+
+    if (!isNativeRuntime) {
+      return normalizeBaseUrl(envUrl);
+    }
+  }
+
+  return "https://zcommapp.com/api";
+};
+
+const API_BASE_URL = resolveApiBaseUrl();
 
 // Helper to get auth headers
 const getAuthHeaders = (): HeadersInit => {
@@ -167,33 +191,119 @@ export const getArchived = async (): Promise<Miv[]> => {
 export const register = async (
   request: RegisterRequest
 ): Promise<RegisterResponse> => {
-  const response = await fetch(`${API_BASE_URL}/accounts/register`, {
+  const requestUrl = `${API_BASE_URL}/accounts/register`;
+  const response = await fetch(requestUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(request),
   });
+
+  const responseBody = await response.text();
+
+  const contentType = response.headers.get("content-type") || "";
+
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Failed to register");
+    if (!responseBody.trim()) {
+      throw new Error(`Failed to register: HTTP ${response.status} with empty response body`);
+    }
+    if (contentType.includes("application/json")) {
+      try {
+        const error = JSON.parse(responseBody);
+        throw new Error(error.error || error.message || `Failed to register: HTTP ${response.status}`);
+      } catch {
+      }
+    }
+    if (responseBody.trim().startsWith("<")) {
+      const diagnostic = `URL=${requestUrl} status=${response.status} content-type='${contentType || "unknown"}' body='${responseBody.slice(0, 120)}'`;
+      console.error("Register API diagnostic:", diagnostic);
+      throw new Error(`Failed to register: backend returned HTML instead of JSON. ${diagnostic}`);
+    }
+    const diagnostic = `URL=${requestUrl} status=${response.status} content-type='${contentType || "unknown"}' body='${responseBody.slice(0, 120)}'`;
+    console.error("Register API diagnostic:", diagnostic);
+    throw new Error(`Failed to register: ${diagnostic}`);
   }
-  return response.json();
+
+  if (!responseBody.trim()) {
+    throw new Error("Failed to register: backend returned empty body");
+  }
+
+  if (contentType.includes("application/json")) {
+    try {
+      return JSON.parse(responseBody) as RegisterResponse;
+    } catch {
+      throw new Error(`Failed to register: malformed JSON response (HTTP ${response.status})`);
+    }
+  }
+
+  if (responseBody.trim().startsWith("<")) {
+    const diagnostic = `URL=${requestUrl} status=${response.status} content-type='${contentType || "unknown"}' body='${responseBody.slice(0, 120)}'`;
+    console.error("Register API diagnostic:", diagnostic);
+    throw new Error(`Failed to register: received HTML page instead of API JSON. ${diagnostic}`);
+  }
+
+  const diagnostic = `URL=${requestUrl} status=${response.status} content-type='${contentType || "unknown"}' body='${responseBody.slice(0, 120)}'`;
+  console.error("Register API diagnostic:", diagnostic);
+  throw new Error(`Failed to register: expected JSON. ${diagnostic}`);
 };
 
 export const login = async (request: LoginRequest): Promise<LoginResponse> => {
-  const response = await fetch(`${API_BASE_URL}/accounts/login`, {
+  const requestUrl = `${API_BASE_URL}/accounts/login`;
+  const response = await fetch(requestUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(request),
   });
+
+  const responseBody = await response.text();
+
+  const contentType = response.headers.get("content-type") || "";
+
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Failed to login");
+    if (!responseBody.trim()) {
+      throw new Error(`Failed to login: HTTP ${response.status} with empty response body`);
+    }
+    if (contentType.includes("application/json")) {
+      try {
+        const error = JSON.parse(responseBody);
+        throw new Error(error.error || error.message || `Failed to login: HTTP ${response.status}`);
+      } catch {
+      }
+    }
+    if (responseBody.trim().startsWith("<")) {
+      const diagnostic = `URL=${requestUrl} status=${response.status} content-type='${contentType || "unknown"}' body='${responseBody.slice(0, 120)}'`;
+      console.error("Login API diagnostic:", diagnostic);
+      throw new Error(`Failed to login: backend returned HTML instead of JSON. ${diagnostic}`);
+    }
+    const diagnostic = `URL=${requestUrl} status=${response.status} content-type='${contentType || "unknown"}' body='${responseBody.slice(0, 120)}'`;
+    console.error("Login API diagnostic:", diagnostic);
+    throw new Error(`Failed to login: ${diagnostic}`);
   }
-  return response.json();
+
+  if (!responseBody.trim()) {
+    throw new Error("Failed to login: backend returned empty body");
+  }
+
+  if (contentType.includes("application/json")) {
+    try {
+      return JSON.parse(responseBody) as LoginResponse;
+    } catch {
+      throw new Error(`Failed to login: malformed JSON response (HTTP ${response.status})`);
+    }
+  }
+
+  if (responseBody.trim().startsWith("<")) {
+    const diagnostic = `URL=${requestUrl} status=${response.status} content-type='${contentType || "unknown"}' body='${responseBody.slice(0, 120)}'`;
+    console.error("Login API diagnostic:", diagnostic);
+    throw new Error(`Failed to login: received HTML page instead of API JSON. ${diagnostic}`);
+  }
+
+  const diagnostic = `URL=${requestUrl} status=${response.status} content-type='${contentType || "unknown"}' body='${responseBody.slice(0, 120)}'`;
+  console.error("Login API diagnostic:", diagnostic);
+  throw new Error(`Failed to login: expected JSON. ${diagnostic}`);
 };
 
 // Desk API

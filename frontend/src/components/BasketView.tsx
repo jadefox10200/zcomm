@@ -16,6 +16,9 @@ interface BasketViewProps {
   onMivClick: (miv: ConversationMiv) => void;
   selectedMivId?: string;
   onBasketChange?: (basket: MivState) => void;
+  // Optional callback to navigate to the Conversations view when swiping
+  onNavigateToConversations?: () => void;
+  refreshToken?: number;
 }
 
 function BasketView({
@@ -24,6 +27,8 @@ function BasketView({
   onMivClick,
   selectedMivId,
   onBasketChange,
+  onNavigateToConversations,
+  refreshToken,
 }: BasketViewProps) {
   const [mivs, setMivs] = useState<ConversationMiv[]>([]);
   const [archivedConversations, setArchivedConversations] = useState<
@@ -31,15 +36,16 @@ function BasketView({
   >([]);
   const [loading, setLoading] = useState(true);
   const [contacts, setContacts] = useState<Contact[]>([]);
+  const firstLoadRef = React.useRef(true);
+  const fullConvCacheRef = React.useRef<Map<string, any>>(new Map());
 
-  // Basket navigation order for swipe gestures
-  const basketOrder: MivState[] = ["IN", "PENDING", "SENT", "ARCHIVED"];
+  // Basket navigation order for swipe gestures (mobile swipe only between these three)
+  const basketOrder: MivState[] = ["IN", "PENDING", "SENT"];
   const currentBasketIndex = basketOrder.indexOf(selectedBasket);
 
   const handleSwipeLeft = () => {
-    if (onBasketChange && currentBasketIndex < basketOrder.length - 1) {
-      const nextBasket = basketOrder[currentBasketIndex + 1];
-      onBasketChange(nextBasket);
+    if (onBasketChange && currentBasketIndex >= 0 && currentBasketIndex < basketOrder.length - 1) {
+      onBasketChange(basketOrder[currentBasketIndex + 1]);
     }
   };
 
@@ -54,7 +60,9 @@ function BasketView({
 
   useEffect(() => {
     const loadMivs = async () => {
-      setLoading(true);
+      if (firstLoadRef.current) {
+        setLoading(true);
+      }
       try {
         // Load contacts first
         const contactsResponse = await api.listContacts(deskId);
@@ -74,21 +82,46 @@ function BasketView({
 
           setArchivedConversations([]);
 
+          // Prepare fetches for conversations not already cached
+          const fetchPromises: Promise<any>[] = [];
+          const convIdsToFetch: string[] = [];
+
           for (const conv of conversations) {
-            // Get full conversation to access all mivs
-            // Pass deskId to get miv states from user's perspective
-            const fullConv = await api.getConversation(
-              conv.conversation.id,
-              deskId
-            );
+            const cid = conv.conversation.id;
+            if (!fullConvCacheRef.current.has(cid)) {
+              convIdsToFetch.push(cid);
+            }
+          }
+
+          // Fetch missing conversations in parallel to reduce latency
+          if (convIdsToFetch.length > 0) {
+            for (const cid of convIdsToFetch) {
+              fetchPromises.push(
+                api.getConversation(cid, deskId).then((fc) => {
+                  fullConvCacheRef.current.set(cid, fc);
+                })
+              );
+            }
+            try {
+              await Promise.all(fetchPromises);
+            } catch (err) {
+              console.error("Failed to fetch some conversations:", err);
+            }
+          }
+
+          // Build miv list from cached/full conversations
+          for (const conv of conversations) {
+            const cid = conv.conversation.id;
+            const fullConv = fullConvCacheRef.current.get(cid);
+            if (!fullConv) continue;
             const mivArray = fullConv.mivs || [];
-            const filteredMivs = mivArray.filter((miv) => {
+              const filteredMivs = mivArray.filter((miv: ConversationMiv) => {
               // CRITICAL: Only show mivs owned by current user
               if (miv.owner !== deskId) return false;
 
               // Filter based on miv state from backend
               if (miv.state !== selectedBasket) return false;
-              // ...removed debug log...
+
               // Exclude deleted mivs from basket views (only affects ACKs)
               if (miv.deleted) return false;
 
@@ -116,12 +149,18 @@ function BasketView({
       } catch (err) {
         console.error("Failed to load basket mivs:", err);
       } finally {
+        firstLoadRef.current = false;
         setLoading(false);
       }
     };
 
     loadMivs();
-  }, [deskId, selectedBasket]);
+  }, [deskId, selectedBasket, refreshToken]);
+
+  // Clear cache when desk or refresh token changes
+  useEffect(() => {
+    fullConvCacheRef.current.clear();
+  }, [deskId, refreshToken]);
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);

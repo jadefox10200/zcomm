@@ -1,0 +1,49 @@
+.unlock-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.unlock-modal {
+  background: #ffffff;
+  color: #000000;
+  padding: 20px;
+  width: 360px;
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+}
+
+.unlock-modal h3 {
+  margin: 0 0 8px 0;
+}
+
+.unlock-modal p {
+  margin: 0 0 12px 0;
+  color: #666666;
+}
+
+.unlock-modal input {
+  width: 100%;
+  padding: 10px;
+  margin-bottom: 8px;
+  border: 1px solid #d0d0d0;
+  border-radius: 6px;
+}
+
+.unlock-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.unlock-error {
+  color: #c62828;
+  margin-bottom: 8px;
+}

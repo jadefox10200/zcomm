@@ -21,33 +21,39 @@
   border-bottom: 1px solid #d0d0d0;
   background: #ffffff;
   color: #000000;
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 .conversation-list-header h2 {
   margin: 0 0 5px 0;
-  font-size: 24px;
+  font-size: var(--type-title-desktop);
   font-weight: 600;
   font-family: Helvetica, Arial, sans-serif;
   color: #000000;
+  line-height: var(--line-title);
 }
 
 .conversation-description {
   margin: 5px 0;
-  font-size: 14px;
+  font-size: var(--type-body);
   color: #666666;
   font-family: Arial, Tahoma, sans-serif;
+  line-height: var(--line-body);
 }
 
 .conversation-list-header .conversation-count {
   margin-top: 10px;
-  font-size: 13px;
+  font-size: var(--type-meta);
   color: #666666;
+  line-height: var(--line-meta);
 }
 
 .conversation-list-items {
   flex: 1;
   overflow-y: auto;
-  padding: 10px;
+  padding: 12px;
 }
 
 .empty-state {
@@ -64,6 +70,25 @@
 
 .empty-hint {
   font-size: 14px;
+}
+
+@media (max-width: 768px) {
+  .conversation-list-header {
+    padding: 14px 16px;
+  }
+
+  .conversation-list-header h2 {
+    font-size: var(--type-title-mobile);
+  }
+
+  .conversation-description,
+  .conversation-list-header .conversation-count {
+    font-size: var(--type-meta);
+  }
+
+  .conversation-list-items {
+    padding: 8px;
+  }
 }
 
 /* Conversation item styles are now in ConversationItem.css */

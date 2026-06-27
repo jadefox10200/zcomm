@@ -21,3 +21,15 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Capacitor / Android native artifacts
+# Keystore (sensitive)
+/AndroidKeyStore
+# Generated web assets copied into Android project by Capacitor
+/android/app/src/main/assets/public/
+# Android build/cache
+/android/.gradle/
+/android/build/
+/android/app/build/
+# Capacitor config generated into android assets (optional to commit)
+capacitor.config.json

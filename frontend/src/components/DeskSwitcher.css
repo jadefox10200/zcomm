@@ -6,8 +6,8 @@
 .desk-switcher-button {
   width: 100%;
   padding: 12px 16px;
-  background: #1a1a1a;
-  border: 1px solid #333333;
+  background: #ffffff; /* light themed button */
+  border: 1px solid #d0d0d0;
   border-radius: 4px;
   cursor: pointer;
   display: flex;
@@ -17,8 +17,8 @@
 }
 
 .desk-switcher-button:hover {
-  background: #2a2a2a;
-  border-color: #ffffff;
+  background: #fafafa;
+  border-color: #bdbdbd;
 }
 
 .desk-info {
@@ -28,7 +28,7 @@
 
 .desk-name {
   font-weight: 600;
-  color: #ffffff;
+  color: #000000;
   font-size: 14px;
   font-family: Helvetica, Arial, sans-serif;
 }
@@ -58,6 +58,31 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   z-index: 1000;
   overflow: hidden;
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+/* Ensure switcher button matches dark nav when placed inside the sidebar/nav */
+.nav-menu .desk-switcher-button,
+.sidebar .desk-switcher-button {
+  background: #1a1a1a;
+  border: 1px solid #333333;
+}
+
+.nav-menu .desk-switcher-button .desk-name,
+.sidebar .desk-switcher-button .desk-name,
+.nav-menu .desk-switcher-button .desk-id,
+.sidebar .desk-switcher-button .desk-id,
+.nav-menu .desk-switcher-button .dropdown-arrow,
+.sidebar .desk-switcher-button .dropdown-arrow {
+  color: #ffffff;
+}
+
+/* Keep dropdown itself light so items remain readable */
+.nav-menu .desk-dropdown,
+.sidebar .desk-dropdown {
+  background: #ffffff;
+  color: #000000;
 }
 
 .desk-dropdown-overlay {
@@ -72,6 +97,8 @@
 .desk-list {
   max-height: 250px;
   overflow-y: auto;
+  overflow-x: hidden; /* Avoid horizontal scrollbar */
+  padding-right: 6px; /* Prevent scrollbar overlap */
 }
 
 .desk-item {
@@ -94,8 +121,7 @@
   border-left: 3px solid #C62828;
 }
 
-.desk-item.active .desk-name {
-  color: #000000;
+.desk-item.active .desk-name {  
   font-weight: 600;
 }
 
@@ -104,15 +130,27 @@
   padding: 12px 16px;
   background: white;
   border: none;
-  border-top: 2px solid #d0d0d0;
+  border-top: 1px solid #d0d0d0;
   color: #000000;
   font-weight: 600;
   font-family: Helvetica, Arial, sans-serif;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.15s;
+  text-align: left;
 }
 
 .create-desk-button:hover {
+  background: #fafafa;
+}
+
+/* When DeskSwitcher is rendered inside the dark nav menu, ensure the create button remains light and readable */
+.nav-menu .create-desk-button {
+  background: #ffffff;
+  color: #000000;
+  border-top: 1px solid #d0d0d0;
+}
+
+.nav-menu .create-desk-button:hover {
   background: #fafafa;
 }
 

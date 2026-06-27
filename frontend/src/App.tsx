@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { Capacitor } from "@capacitor/core";
+import { LocalNotifications } from "@capacitor/local-notifications";
 import Auth from "./components/Auth";
 import DeskSwitcher from "./components/DeskSwitcher";
 import ConversationList from "./components/ConversationList";
@@ -23,6 +25,7 @@ import {
 } from "./types";
 import * as api from "./api/client";
 import "./App.css";
+import UnlockKeysModal from "./components/UnlockKeysModal";
 
 type View =
   | "baskets"
@@ -33,6 +36,8 @@ type View =
   | "settings";
 
 function App() {
+  const isNativePlatform = Capacitor.isNativePlatform();
+
   // Authentication state
   const [account, setAccount] = useState<Account | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -78,6 +83,153 @@ function App() {
   // Resubmit state - for pre-populating ComposeMiv with rejected via routing message
   const [resubmitMiv, setResubmitMiv] = useState<ConversationMiv | null>(null);
 
+  // Native notifications state
+  const localNotificationsReadyRef = useRef(false);
+  const notificationsSnapshotInitializedRef = useRef(false);
+  const knownInboxMivIdsRef = useRef<Set<string>>(new Set());
+
+  const initializeLocalNotifications = useCallback(async () => {
+    if (!isNativePlatform) return;
+
+    try {
+      const permissionStatus = await LocalNotifications.checkPermissions();
+      let displayPermission = permissionStatus.display;
+
+      if (displayPermission !== "granted") {
+        const requested = await LocalNotifications.requestPermissions();
+        displayPermission = requested.display;
+      }
+
+      if (displayPermission !== "granted") {
+        console.warn("Local notifications permission was not granted");
+        return;
+      }
+
+      // Android notification channel (ignored on iOS/web)
+      await LocalNotifications.createChannel({
+        id: "inbox-mivs",
+        name: "Inbox Messages",
+        description: "Notifications for new inbox MIVs",
+        importance: 5,
+        visibility: 1,
+      });
+
+      localNotificationsReadyRef.current = true;
+    } catch (error) {
+      console.error("Failed to initialize local notifications:", error);
+    }
+  }, [isNativePlatform]);
+
+  // Add listeners for notification events (tap/receive)
+  useEffect(() => {
+    if (!isNativePlatform) return;
+
+    let actionHandle: any = null;
+    let receiveHandle: any = null;
+
+    LocalNotifications.addListener(
+      "localNotificationActionPerformed",
+      async (notification) => {
+        try {
+          const payload = (notification as any).notification?.extra;
+          if (payload?.conversationId && activeDesk) {
+            const resp = await api.getConversation(payload.conversationId, activeDesk.id);
+            setSelectedConversation(resp);
+            setCurrentView("conversations");
+          }
+        } catch (err) {
+          console.error("Failed handling notification action:", err);
+        }
+      }
+    )
+      .then((h) => {
+        actionHandle = h;
+      })
+      .catch((e) => console.warn("addListener failed:", e));
+
+    LocalNotifications.addListener(
+      "localNotificationReceived",
+      (notification) => {
+        const title = (notification as any).notification?.title;
+        const body = (notification as any).notification?.body;
+        setToastMessage(`${title}: ${body}`);
+      }
+    )
+      .then((h) => {
+        receiveHandle = h;
+      })
+      .catch((e) => console.warn("addListener failed:", e));
+
+    return () => {
+      try {
+        actionHandle?.remove?.();
+        receiveHandle?.remove?.();
+      } catch (e) {
+        // ignore
+      }
+    };
+  }, [isNativePlatform, activeDesk]);
+
+  const notifyForNewInboxMivs = useCallback(async (
+    latestConversations: ConversationWithLatest[] | undefined,
+    deskId: string
+  ) => {
+    if (!latestConversations || !Array.isArray(latestConversations)) return;
+
+    const latestInboxMivs = latestConversations
+      .map((conversation) => conversation.latest_miv)
+      .filter((miv): miv is ConversationMiv => Boolean(miv))
+      .filter((miv) => {
+        if (miv.deleted || miv.is_forgotten) return false;
+        if (miv.from === deskId) return false;
+        return miv.state === "IN" || miv.state === "CC";
+      });
+
+    const currentInboxMivIds = new Set(latestInboxMivs.map((miv) => miv.id));
+
+    // Prime initial snapshot so we don't fire on existing unread messages at startup
+    if (!notificationsSnapshotInitializedRef.current) {
+      knownInboxMivIdsRef.current = currentInboxMivIds;
+      notificationsSnapshotInitializedRef.current = true;
+      return;
+    }
+
+    const newUnreadMivs = latestInboxMivs.filter(
+      (miv) => !knownInboxMivIdsRef.current.has(miv.id)
+    );
+
+    knownInboxMivIdsRef.current = currentInboxMivIds;
+
+    if (newUnreadMivs.length === 0) return;
+
+    // If native local notifications are available, show system notifications.
+    // Otherwise, fall back to toast in web runtime.
+    if (isNativePlatform && localNotificationsReadyRef.current) {
+      const now = Date.now();
+      const notificationsToSchedule = newUnreadMivs.slice(0, 5).map((item, index) => ({
+        id: Number(String(now + index).slice(-9)),
+        title: "New Inbox Message",
+        body: item.subject || `New message from ${item.from}`,
+        schedule: { at: new Date(now + 300 + index * 120) },
+        channelId: "inbox-mivs",
+        extra: {
+          mivId: item.id,
+          conversationId: item.conversation_id,
+          type: item.type,
+        },
+      }));
+
+      try {
+        await LocalNotifications.schedule({ notifications: notificationsToSchedule });
+      } catch (error) {
+        console.error("Failed to schedule local notifications:", error);
+      }
+    } else {
+      const latest = newUnreadMivs[newUnreadMivs.length - 1];
+      setToastMessage(`New inbox message: ${latest.subject}`);
+    }
+  }, [isNativePlatform]);
+
   // Load saved session on mount
   useEffect(() => {
     const savedAccount = localStorage.getItem("account");
@@ -95,6 +247,11 @@ function App() {
     }
     setLoading(false);
   }, []);
+
+  // Initialize native local notifications once
+  useEffect(() => {
+    initializeLocalNotifications();
+  }, [initializeLocalNotifications]);
 
   // Load desks when account is set
   useEffect(() => {
@@ -131,6 +288,67 @@ function App() {
     }
   }, [account, activeDesk]);
 
+  // If desks exist but sessionStorage lacks private keys, attempt to restore from persisted encrypted keys
+  useEffect(() => {
+    const tryRestoreKeys = async () => {
+      if (!desks || desks.length === 0) return;
+      // Check if any desk already has a private key in sessionStorage
+      const { getPrivateKey } = await import("./utils/crypto");
+
+      let missing = false;
+      for (const d of desks) {
+        if (!getPrivateKey(d.id)) {
+          missing = true;
+          break;
+        }
+      }
+
+      if (!missing) return;
+
+      const enc = localStorage.getItem("encrypted_priv_keys");
+      if (!enc) return;
+
+      let parsed: Record<string, string>;
+      try {
+        parsed = JSON.parse(enc);
+      } catch (e) {
+        console.warn("Failed to parse encrypted_priv_keys from localStorage", e);
+        return;
+      }
+
+      // Instead of using prompt (which may be unsupported in native/webview), open modal
+      setEncryptedKeysPayload(parsed);
+      setShowUnlockModal(true);
+    };
+
+    tryRestoreKeys();
+  }, [desks]);
+
+  const [showUnlockModal, setShowUnlockModal] = React.useState(false);
+  const [encryptedKeysPayload, setEncryptedKeysPayload] = React.useState<
+    Record<string, string> | null
+  >(null);
+
+  const handleUnlockWithPassword = async (password: string) => {
+    if (!encryptedKeysPayload) return false;
+    try {
+      const { decryptPrivateKey, storePrivateKey } = await import(
+        "./utils/crypto"
+      );
+      for (const [deskId, encryptedKey] of Object.entries(encryptedKeysPayload)) {
+        const decryptedKey = decryptPrivateKey(encryptedKey, password);
+        storePrivateKey(deskId, decryptedKey);
+      }
+      setShowUnlockModal(false);
+      setEncryptedKeysPayload(null);
+      setToastMessage("Encryption keys unlocked");
+      return true;
+    } catch (err) {
+      console.error("Failed to decrypt persisted keys:", err);
+      return false;
+    }
+  };
+
   // Load conversations and notifications when active desk changes
   useEffect(() => {
     const loadData = async () => {
@@ -148,6 +366,8 @@ function App() {
         setUnreadCount(notifResponse.unread_count);
         setContacts(contactsResponse.contacts || []);
 
+        await notifyForNewInboxMivs(convResponse.conversations, activeDesk.id);
+
         // Calculate basket counts
         await calculateBasketCounts(convResponse.conversations, activeDesk.id);
       } catch (err: any) {
@@ -161,6 +381,8 @@ function App() {
           handleLogout();
         }
       }
+
+                setBasketRefreshKey((prev) => prev + 1);
     };
 
     if (activeDesk) {
@@ -173,7 +395,7 @@ function App() {
 
       return () => clearInterval(interval);
     }
-  }, [activeDesk]);
+  }, [activeDesk, notifyForNewInboxMivs]);
 
   const calculateBasketCounts = async (
     convs: ConversationWithLatest[],
@@ -299,6 +521,15 @@ function App() {
           );
         }
       }
+      // Persist encrypted keys so session can be restored across browser restarts
+      try {
+        localStorage.setItem(
+          "encrypted_priv_keys",
+          JSON.stringify(response.encrypted_priv_keys)
+        );
+      } catch (e) {
+        console.warn("Failed to persist encrypted_priv_keys to localStorage", e);
+      }
     } else {
       console.warn("⚠️ No encrypted_priv_keys in login response");
     }
@@ -338,6 +569,8 @@ function App() {
     setBasketRefreshKey(0);
 
     // Clear basket counts
+    // Remove persisted encrypted private keys
+    localStorage.removeItem("encrypted_priv_keys");
     setBasketCounts({ inbox: 0, pending: 0, sent: 0, archived: 0 });
 
     // Clear conversation view state
@@ -354,6 +587,9 @@ function App() {
     setContacts([]);
     setResubmitMiv(null);
     setMobileMenuOpen(false);
+
+    notificationsSnapshotInitializedRef.current = false;
+    knownInboxMivIdsRef.current = new Set();
 
     // Clear local storage
     localStorage.removeItem("account");
@@ -778,7 +1014,8 @@ function App() {
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             aria-label="Toggle menu"
           >
-            ☰
+            <span aria-hidden="true">☰</span>
+            <span className="mobile-btn-label">Menu</span>
           </button>
           <h1>Zcomm</h1>
           <div className="mobile-header-actions">
@@ -788,7 +1025,8 @@ function App() {
                 onClick={() => setSelectedMiv(null)}
                 aria-label="Back to basket"
               >
-                ←
+                <span aria-hidden="true">←</span>
+                <span className="mobile-btn-label">Back</span>
               </button>
             )}
             {currentView !== "compose" && (
@@ -800,7 +1038,8 @@ function App() {
                 }}
                 aria-label="Compose new message"
               >
-                ✏️ Compose
+                <span aria-hidden="true">✏️</span>
+                <span className="mobile-btn-label">Compose</span>
               </button>
             )}
           </div>
@@ -810,12 +1049,7 @@ function App() {
           </div>
         </div>
 
-        <DeskSwitcher
-          desks={desks}
-          activeDeskId={activeDesk.id}
-          onSwitchDesk={handleSwitchDesk}
-          onCreateDesk={handleCreateDesk}
-        />
+        {/* Desk switching moved into the mobile/side menu to simplify top header */}
 
         <button
           onClick={() => {
@@ -829,6 +1063,21 @@ function App() {
         </button>
 
         <nav className={`nav-menu ${mobileMenuOpen ? "open" : ""}`}>
+          <div className="nav-section">
+            <h4>Desks</h4>
+            <DeskSwitcher
+              desks={desks}
+              activeDeskId={activeDesk.id}
+              onSwitchDesk={(id) => {
+                handleSwitchDesk(id);
+                setMobileMenuOpen(false);
+              }}
+              onCreateDesk={(name) => {
+                handleCreateDesk(name);
+                setMobileMenuOpen(false);
+              }}
+            />
+          </div>
           <div className="nav-section">
             <h4>Baskets</h4>
             <button
@@ -1015,20 +1264,17 @@ function App() {
               }`}
             >
               <BasketView
-                key={basketRefreshKey}
                 deskId={activeDesk.id}
                 selectedBasket={selectedBasket}
                 onMivClick={handleMivClick}
                 selectedMivId={selectedMiv?.id}
                 onBasketChange={setSelectedBasket}
+                onNavigateToConversations={() => setCurrentView("conversations")}
+                refreshToken={basketRefreshKey}
               />
             </div>
-            <div
-              className={`basket-detail-container ${
-                selectedMiv ? "mobile-fullscreen" : ""
-              }`}
-            >
-              {selectedMiv ? (
+            {selectedMiv ? (
+              <div className="basket-detail-container mobile-fullscreen">
                 <MivDetailWithContext
                   miv={selectedMiv}
                   currentDeskId={activeDesk.id}
@@ -1040,18 +1286,14 @@ function App() {
                   onResubmit={handleResubmit}
                   isArchived={selectedBasket === "ARCHIVED"}
                 />
-              ) : (
-                <div className="empty-selection">
-                  <p>Select a message to view</p>
-                </div>
-              )}
-            </div>
+              </div>
+            ) : null}
           </>
         ) : (
           <>
             <div
               className={`basket-list-container ${
-                selectedMiv ? "mobile-hidden" : ""
+                selectedMiv || selectedConversation ? "mobile-hidden" : ""
               }`}
             >
               <ConversationList
@@ -1065,34 +1307,72 @@ function App() {
                 selectedMivId={selectedMiv?.id}
               />
             </div>
-            <div
-              className={`basket-detail-container ${
-                selectedMiv ? "mobile-fullscreen" : ""
-              }`}
-            >
-              {selectedMiv ? (
-                <MivDetailWithContext
-                  miv={selectedMiv}
-                  currentDeskId={activeDesk.id}
-                  currentDesk={activeDesk}
-                  onReply={handleMivReply}
-                  onForget={handleMivForget}
-                  onDeleteCc={handleDeleteCc}
-                  onBack={handleBackToBasket}
-                  onResubmit={handleResubmit}
-                  isArchived={false}
-                />
-              ) : (
-                <div className="empty-selection">
-                  <p>Select a message to view</p>
-                </div>
-              )}
-            </div>
+
+            {/* Only render the detail panel when a conversation or miv is selected so
+                the conversation list can fill the available space when nothing is open */}
+            {(selectedMiv || selectedConversation) && (
+              <div className={`basket-detail-container mobile-fullscreen`}>
+                {selectedMiv ? (
+                  <MivDetailWithContext
+                    miv={selectedMiv}
+                    currentDeskId={activeDesk.id}
+                    currentDesk={activeDesk}
+                    onReply={handleMivReply}
+                    onForget={handleMivForget}
+                    onDeleteCc={handleDeleteCc}
+                    onBack={handleBackToBasket}
+                    onResubmit={handleResubmit}
+                    isArchived={false}
+                  />
+                ) : selectedConversation ? (
+                  // When a conversation thread is selected, show its latest miv in the detail
+                  (() => {
+                    const latest =
+                      selectedConversation.mivs &&
+                      selectedConversation.mivs.length > 0
+                        ? selectedConversation.mivs[
+                            selectedConversation.mivs.length - 1
+                          ]
+                        : null;
+                    return latest ? (
+                      <MivDetailWithContext
+                        miv={latest}
+                        currentDeskId={activeDesk.id}
+                        currentDesk={activeDesk}
+                        onReply={handleMivReply}
+                        onForget={handleMivForget}
+                        onDeleteCc={handleDeleteCc}
+                        onBack={() => {
+                          setSelectedConversation(null);
+                          setCurrentView("conversations");
+                        }}
+                        onResubmit={handleResubmit}
+                        isArchived={false}
+                      />
+                    ) : (
+                      <div className="empty-selection">
+                        <p>Select a message to view</p>
+                      </div>
+                    );
+                  })()
+                ) : null}
+              </div>
+            )}
           </>
         )}
       </div>
       {toastMessage && (
         <Toast message={toastMessage} onClose={() => setToastMessage(null)} />
+      )}
+      {showUnlockModal && encryptedKeysPayload && (
+        <UnlockKeysModal
+          encryptedKeys={encryptedKeysPayload}
+          onUnlock={handleUnlockWithPassword}
+          onCancel={() => {
+            setShowUnlockModal(false);
+            setEncryptedKeysPayload(null);
+          }}
+        />
       )}
     </div>
   );
