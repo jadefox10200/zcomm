@@ -34,6 +34,8 @@ const isAbsoluteHttpUrl = (url: string): boolean => /^https?:\/\//i.test(url);
 const resolveApiBaseUrl = (): string => {
   const envUrl = process.env.REACT_APP_API_URL?.trim();
   const isNativeRuntime = Capacitor.isNativePlatform();
+  const host = typeof window !== "undefined" ? window.location.hostname : "";
+  const isProductionHost = /(^|\.)zcommapp\.com$/i.test(host);
 
   if (envUrl) {
     if (isAbsoluteHttpUrl(envUrl)) {
@@ -44,11 +46,26 @@ const resolveApiBaseUrl = (): string => {
       return normalizeBaseUrl(`https://zcommapp.com${envUrl}`);
     }
 
-    if (!isNativeRuntime) {
+    if (!isNativeRuntime && !envUrl.startsWith("/")) {
+      return normalizeBaseUrl(envUrl);
+    }
+
+    if (!isNativeRuntime && envUrl.startsWith("/") && isProductionHost) {
       return normalizeBaseUrl(envUrl);
     }
   }
 
+  if (!isNativeRuntime) {
+    // Only production web host should use same-origin API proxy.
+    if (isProductionHost) {
+      return "/api";
+    }
+
+    // Local/LAN static serving (serve -s build) has no API proxy.
+    return "https://zcommapp.com/api";
+  }
+
+  // Native apps need an absolute host.
   return "https://zcommapp.com/api";
 };
 

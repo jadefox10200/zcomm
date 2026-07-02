@@ -1,0 +1,21 @@
+services:
+  backend:
+    build: ./backend
+    container_name: zcomm-backend-local
+    restart: unless-stopped
+    volumes:
+      - ./backend/data:/app/data
+    environment:
+      - API_ENV=production
+
+  web:
+    image: nginx:alpine
+    container_name: zcomm-web-local
+    restart: unless-stopped
+    volumes:
+      - ./nginx.local.conf:/etc/nginx/nginx.conf:ro
+      - ./frontend/build:/usr/share/nginx/html:ro
+    ports:
+      - "8080:8080"
+    depends_on:
+      - backend
