@@ -1,4 +1,4 @@
-.PHONY: help backend frontend dev build clean docker-build docker-up docker-down test
+.PHONY: help backend frontend dev build clean docker-build docker-up docker-down test deploy-live
 
 help:
 	@echo "Missiv - Development Commands"
@@ -10,6 +10,7 @@ help:
 	@echo "  make docker-build     - Build Docker images"
 	@echo "  make docker-up        - Start Docker containers"
 	@echo "  make docker-down      - Stop Docker containers"
+	@echo "  make deploy-live      - Build frontend, sync build, and deploy backend/nginx to server"
 	@echo "  make test             - Run tests"
 	@echo "  make clean            - Clean build artifacts"
 
@@ -48,6 +49,13 @@ test:
 	cd backend && go test ./...
 	@echo "Running frontend tests..."
 	cd frontend && npm test -- --watchAll=false
+
+deploy-live:
+	@if [ -z "$$DEPLOY_HOST" ]; then \
+		echo "Usage: make deploy-live DEPLOY_HOST=your-server [DEPLOY_USER=root] [DEPLOY_PATH=/root/zcomm]"; \
+		exit 1; \
+	fi
+	bash ./scripts/deploy-live.sh
 
 clean:
 	@echo "Cleaning build artifacts..."
