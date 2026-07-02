@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DEPLOY_HOST="${DEPLOY_HOST:-}"
+DEPLOY_HOST="${DEPLOY_HOST:-ubuntu-zcomm}"
 DEPLOY_USER="${DEPLOY_USER:-root}"
 DEPLOY_PATH="${DEPLOY_PATH:-/root/zcomm}"
 DEPLOY_BRANCH="${DEPLOY_BRANCH:-main}"
@@ -9,12 +9,6 @@ BACKEND_SERVICE="${BACKEND_SERVICE:-backend}"
 NGINX_SERVICE="${NGINX_SERVICE:-nginx}"
 NPM_INSTALL_CMD="${NPM_INSTALL_CMD:-ci}"
 ALLOW_DIRTY="${ALLOW_DIRTY:-false}"
-
-if [[ -z "${DEPLOY_HOST}" ]]; then
-  echo "ERROR: DEPLOY_HOST is required."
-  echo "Example: DEPLOY_HOST=your-server ./scripts/deploy-live.sh"
-  exit 1
-fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"

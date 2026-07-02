@@ -82,6 +82,13 @@ body {
   line-height: var(--line-meta);
 }
 
+.user-role {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #bdbdbd;
+  line-height: var(--line-meta);
+}
+
 .compose-btn {
   margin: 16px;
   padding: 12px 14px;

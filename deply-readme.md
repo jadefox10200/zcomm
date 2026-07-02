@@ -22,7 +22,7 @@ chmod +x scripts/deploy-live.sh scripts/remote-deploy.sh
 Run this from repo root on your local machine:
 
 ```bash
-make deploy-live DEPLOY_HOST=your-server DEPLOY_USER=root DEPLOY_PATH=/root/zcomm
+bash ./scripts/deploy-live.sh
 ```
 
 This does all required steps:
@@ -37,7 +37,13 @@ This does all required steps:
    - reloads nginx
    - runs backend health check
 
-## Optional Flags
+The script is preconfigured for:
+
+1. Host: `ubuntu-zcomm`
+2. User: `root`
+3. Server path: `/root/zcomm`
+
+## Optional Overrides
 
 - Use a different branch target:
 

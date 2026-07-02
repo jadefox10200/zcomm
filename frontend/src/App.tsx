@@ -1007,7 +1007,21 @@ function App() {
     );
   }
 
-  const isAdmin = (account.role || "").trim().toLowerCase() === "admin";
+  const normalizeRole = (role?: string | null) => (role || "").trim().toLowerCase();
+
+  let storedRole = "";
+  try {
+    const stored = localStorage.getItem("account");
+    if (stored) {
+      const parsed = JSON.parse(stored) as { role?: string };
+      storedRole = normalizeRole(parsed.role);
+    }
+  } catch {
+    storedRole = "";
+  }
+
+  const effectiveRole = normalizeRole(account.role) || storedRole;
+  const isAdmin = effectiveRole === "admin";
 
   return (
     <div className="app">
@@ -1050,6 +1064,7 @@ function App() {
           <div className="user-info">
             <div className="user-name">{account.display_name}</div>
             <div className="user-username">@{account.username}</div>
+            <div className="user-role">Role: {effectiveRole || "unknown"}</div>
           </div>
         </div>
 
