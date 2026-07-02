@@ -1007,7 +1007,7 @@ function App() {
     );
   }
 
-  const isAdmin = account.role === "admin";
+  const isAdmin = (account.role || "").trim().toLowerCase() === "admin";
 
   return (
     <div className="app">
