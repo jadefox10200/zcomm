@@ -18,6 +18,8 @@ import {
   CreateConversationRequest,
   ReplyToConversationRequest,
   ListNotificationsResponse,
+  AdminUserCounts,
+  AdminUsersResponse,
   Contact,
   CreateContactRequest,
   UpdateContactRequest,
@@ -736,5 +738,98 @@ export const deleteContact = async (contactId: string): Promise<void> => {
   if (!response.ok) {
     handleAuthError(response);
     throw new Error("Failed to delete contact");
+  }
+};
+
+// Admin API
+
+export const getAdminUserCounts = async (): Promise<AdminUserCounts> => {
+  const response = await fetch(`${API_BASE_URL}/admin/users/count`, {
+    headers: getAuthHeaders(),
+  });
+  if (!response.ok) {
+    handleAuthError(response);
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || "Failed to fetch user counts");
+  }
+  return response.json();
+};
+
+export const listAdminUsers = async (): Promise<AdminUsersResponse> => {
+  const response = await fetch(`${API_BASE_URL}/admin/users`, {
+    headers: getAuthHeaders(),
+  });
+  if (!response.ok) {
+    handleAuthError(response);
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || "Failed to fetch users");
+  }
+  return response.json();
+};
+
+export const lockAdminUser = async (accountId: string): Promise<void> => {
+  const response = await fetch(`${API_BASE_URL}/admin/users/${accountId}/lock`, {
+    method: "POST",
+    headers: getAuthHeaders(),
+  });
+  if (!response.ok) {
+    handleAuthError(response);
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || "Failed to lock user");
+  }
+};
+
+export const unlockAdminUser = async (accountId: string): Promise<void> => {
+  const response = await fetch(`${API_BASE_URL}/admin/users/${accountId}/unlock`, {
+    method: "POST",
+    headers: getAuthHeaders(),
+  });
+  if (!response.ok) {
+    handleAuthError(response);
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || "Failed to unlock user");
+  }
+};
+
+export const closeAdminUser = async (accountId: string): Promise<void> => {
+  const response = await fetch(`${API_BASE_URL}/admin/users/${accountId}/close`, {
+    method: "POST",
+    headers: getAuthHeaders(),
+  });
+  if (!response.ok) {
+    handleAuthError(response);
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || "Failed to close user");
+  }
+};
+
+export const reopenAdminUser = async (accountId: string): Promise<void> => {
+  const response = await fetch(`${API_BASE_URL}/admin/users/${accountId}/reopen`, {
+    method: "POST",
+    headers: getAuthHeaders(),
+  });
+  if (!response.ok) {
+    handleAuthError(response);
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || "Failed to reopen user");
+  }
+};
+
+export const resetAdminUserPassword = async (
+  accountId: string,
+  newPassword: string
+): Promise<void> => {
+  const response = await fetch(
+    `${API_BASE_URL}/admin/users/${accountId}/reset-password`,
+    {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ new_password: newPassword }),
+    }
+  );
+  if (!response.ok) {
+    handleAuthError(response);
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || "Failed to reset password");
   }
 };

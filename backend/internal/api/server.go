@@ -149,6 +149,7 @@ func (s *Server) setupRoutes() {
 			admin.POST("/users/:account_id/lock", s.adminLockUser)
 			admin.POST("/users/:account_id/unlock", s.adminUnlockUser)
 			admin.POST("/users/:account_id/close", s.adminCloseUser)
+			admin.POST("/users/:account_id/reopen", s.adminReopenUser)
 			admin.POST("/users/:account_id/reset-password", s.adminResetUserPassword)
 		}
 

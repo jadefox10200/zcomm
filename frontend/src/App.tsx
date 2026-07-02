@@ -11,6 +11,7 @@ import ComposeMiv from "./components/ComposeMiv";
 import ContactManager from "./components/ContactManager";
 import Settings from "./components/Settings";
 import Toast from "./components/Toast";
+import AdminPanel from "./components/AdminPanel";
 import {
   Account,
   Desk,
@@ -33,7 +34,8 @@ type View =
   | "compose"
   | "notifications"
   | "contacts"
-  | "settings";
+  | "settings"
+  | "admin";
 
 function App() {
   const isNativePlatform = Capacitor.isNativePlatform();
@@ -1005,6 +1007,8 @@ function App() {
     );
   }
 
+  const isAdmin = account.role === "admin";
+
   return (
     <div className="app">
       <div className="sidebar">
@@ -1184,6 +1188,18 @@ function App() {
 
           <div className="nav-section">
             <h4>Account</h4>
+            {isAdmin && (
+              <button
+                className={currentView === "admin" ? "active" : ""}
+                onClick={() => {
+                  setCurrentView("admin");
+                  setSelectedMiv(null);
+                  setMobileMenuOpen(false);
+                }}
+              >
+                🛠️ Admin
+              </button>
+            )}
             <button
               className={currentView === "settings" ? "active" : ""}
               onClick={() => {
@@ -1229,7 +1245,9 @@ function App() {
       ></div>
 
       <div className="main-content">
-        {currentView === "settings" ? (
+        {currentView === "admin" && isAdmin ? (
+          <AdminPanel currentAccountId={account.id} />
+        ) : currentView === "settings" ? (
           <Settings
             desk={activeDesk}
             onClose={() => setCurrentView("baskets")}

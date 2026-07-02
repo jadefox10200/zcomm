@@ -452,6 +452,30 @@ func (s *Server) adminCloseUser(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Account closed", "account": account})
 }
 
+func (s *Server) adminReopenUser(c *gin.Context) {
+	accountID := c.Param("account_id")
+	if accountID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "account_id is required"})
+		return
+	}
+
+	account, err := s.storage.GetAccountByID(accountID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Account not found"})
+		return
+	}
+
+	account.Status = models.AccountStatusActive
+	account.ClosedAt = nil
+	account.LockedAt = nil
+	if err := s.storage.UpdateAccount(account); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reopen account"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Account reopened", "account": account})
+}
+
 func (s *Server) adminResetUserPassword(c *gin.Context) {
 	accountID := c.Param("account_id")
 	if accountID == "" {

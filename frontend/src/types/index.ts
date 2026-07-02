@@ -55,10 +55,27 @@ export interface Account {
   id: string;
   username: string;
   display_name: string;
+  role?: string;
+  status?: string;
+  locked_at?: string;
+  closed_at?: string;
+  force_password_reset?: boolean;
   created_at: string;
   updated_at: string;
   desks: string[];
   active_desk: string;
+}
+
+export interface AdminUserCounts {
+  total: number;
+  active: number;
+  locked: number;
+  closed: number;
+  admins: number;
+}
+
+export interface AdminUsersResponse {
+  users: Account[];
 }
 
 export interface Desk {
