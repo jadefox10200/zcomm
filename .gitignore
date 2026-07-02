@@ -24,6 +24,10 @@ frontend/.env.development.local
 frontend/.env.test.local
 frontend/.env.production.local
 
+# Node.js dependencies (global safety)
+node_modules/
+**/node_modules/
+
 # Logs
 *.log
 npm-debug.log*
