@@ -2,21 +2,39 @@ package models
 
 import "time"
 
+const (
+	AccountRoleUser  = "user"
+	AccountRoleAdmin = "admin"
+
+	AccountStatusActive = "active"
+	AccountStatusLocked = "locked"
+	AccountStatusClosed = "closed"
+)
+
 // Account represents a user account with authentication
 type Account struct {
-	ID           string    `json:"id"`           // Unique account ID
-	Username     string    `json:"username"`     // Username for login
-	PasswordHash string    `json:"-"`            // Argon2 hashed password (not exposed in JSON)
-	DisplayName  string    `json:"display_name"` // Display name
-	CreatedAt    time.Time `json:"created_at"`   // When the account was created
-	UpdatedAt    time.Time `json:"updated_at"`   // When the account was last updated
-	Desks        []string  `json:"desks"`        // List of desk IDs (zIDs) this account owns
-	ActiveDesk   string    `json:"active_desk"`  // Currently active desk ID
+	ID                 string     `json:"id"`                   // Unique account ID
+	Username           string     `json:"username"`             // Username for login
+	PasswordHash       string     `json:"-"`                    // Argon2 hashed password (not exposed in JSON)
+	DisplayName        string     `json:"display_name"`         // Display name
+	Role               string     `json:"role"`                 // Account role (user/admin)
+	Status             string     `json:"status"`               // Account status (active/locked/closed)
+	LockedAt           *time.Time `json:"locked_at,omitempty"`  // When account was locked
+	ClosedAt           *time.Time `json:"closed_at,omitempty"`  // When account was closed
+	ForcePasswordReset bool       `json:"force_password_reset"` // Require password reset on next login
+	CreatedAt          time.Time  `json:"created_at"`           // When the account was created
+	UpdatedAt          time.Time  `json:"updated_at"`           // When the account was last updated
+	Desks              []string   `json:"desks"`                // List of desk IDs (zIDs) this account owns
+	ActiveDesk         string     `json:"active_desk"`          // Currently active desk ID
 
 	// Security questions for password recovery (hashed answers)
 	BirthdayHash     string `json:"-"` // Hash of birthday (YYYY-MM-DD format)
 	FirstPetNameHash string `json:"-"` // Hash of first pet name
 	MotherMaidenHash string `json:"-"` // Hash of mother's maiden name
+}
+
+type AdminResetPasswordRequest struct {
+	NewPassword string `json:"new_password" binding:"required,min=8"`
 }
 
 // Desk represents a desk/identity that belongs to an account
@@ -57,7 +75,7 @@ type LoginRequest struct {
 // LoginResponse represents a successful login response
 type LoginResponse struct {
 	Account           *Account          `json:"account"`
-	Token             string            `json:"token"`              // JWT token for authentication
+	Token             string            `json:"token"`               // JWT token for authentication
 	EncryptedPrivKeys map[string]string `json:"encrypted_priv_keys"` // Desk ID -> Encrypted private key (base64)
 }
 

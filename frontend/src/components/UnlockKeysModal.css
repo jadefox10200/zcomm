@@ -24,6 +24,13 @@
   margin: 0 0 8px 0;
 }
 
+.unlock-account {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1d3557;
+}
+
 .unlock-modal p {
   margin: 0 0 12px 0;
   color: #666666;

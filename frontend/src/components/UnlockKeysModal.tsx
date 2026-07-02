@@ -5,9 +5,15 @@ interface Props {
   encryptedKeys: Record<string, string>;
   onUnlock: (password: string) => Promise<boolean>;
   onCancel: () => void;
+  accountLabel?: string;
 }
 
-export default function UnlockKeysModal({ encryptedKeys, onUnlock, onCancel }: Props) {
+export default function UnlockKeysModal({
+  encryptedKeys,
+  onUnlock,
+  onCancel,
+  accountLabel,
+}: Props) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -31,6 +37,7 @@ export default function UnlockKeysModal({ encryptedKeys, onUnlock, onCancel }: P
     <div className="unlock-overlay">
       <div className="unlock-modal">
         <h3>Unlock encryption keys</h3>
+        {accountLabel && <div className="unlock-account">Signed in as {accountLabel}</div>}
         <p>Enter your account password to restore encrypted private keys.</p>
         <input
           type="password"

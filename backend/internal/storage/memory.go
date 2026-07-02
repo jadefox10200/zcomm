@@ -175,6 +175,12 @@ func (s *MemoryStorage) CreateAccount(account *models.Account) error {
 	if account.CreatedAt.IsZero() {
 		account.CreatedAt = time.Now()
 	}
+	if account.Role == "" {
+		account.Role = models.AccountRoleUser
+	}
+	if account.Status == "" {
+		account.Status = models.AccountStatusActive
+	}
 	account.UpdatedAt = account.CreatedAt
 
 	// Check if username already exists
@@ -224,7 +230,21 @@ func (s *MemoryStorage) UpdateAccount(account *models.Account) error {
 
 	account.UpdatedAt = time.Now()
 	s.accounts[account.ID] = account
+	s.accountsByUsername[account.Username] = account
 	return nil
+}
+
+// ListAccounts returns all accounts.
+func (s *MemoryStorage) ListAccounts() ([]*models.Account, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	accounts := make([]*models.Account, 0, len(s.accounts))
+	for _, account := range s.accounts {
+		accounts = append(accounts, account)
+	}
+
+	return accounts, nil
 }
 
 // Desk methods
@@ -360,20 +380,20 @@ func (s *MemoryStorage) ListConversationsByDesk(deskID string) ([]*models.Conver
 				break
 			}
 		}
-		
+
 		for _, miv := range mivs {
 			normalizedMivTo := crypto.NormalizeDeskID(miv.ArrowTo)
 			normalizedDeskID := crypto.NormalizeDeskID(deskID)
-			
+
 			// Check if deskID matches recipient or sender
 			isRecipient := normalizedMivTo == normalizedDeskID
 			isSender := miv.From == deskID
-			
+
 			// For CC-only conversations, only the owner should see them
 			if isCCOnlyConversation && !isRecipient {
 				continue
 			}
-			
+
 			if isRecipient || isSender {
 				if conv, exists := s.conversations[convID]; exists {
 					conversationMap[convID] = conv
@@ -411,10 +431,10 @@ func (s *MemoryStorage) ListArchivedConversationsByDesk(deskID string) ([]*model
 		for _, miv := range mivs {
 			normalizedMivTo := crypto.NormalizeDeskID(miv.ArrowTo)
 			normalizedDeskID := crypto.NormalizeDeskID(deskID)
-			
+
 			isRecipient := normalizedMivTo == normalizedDeskID
 			isSender := miv.From == deskID
-			
+
 			if isRecipient || isSender {
 				if conv, exists := s.conversations[convID]; exists && conv.IsArchived {
 					conversationMap[convID] = conv
@@ -544,16 +564,16 @@ func (s *MemoryStorage) MarkConversationMivAsRead(mivID string, deskID string) e
 				// Mark as read
 				now := time.Now()
 				mivs[i].ReadAt = &now
-				
+
 				// Check if this user is a via intermediary (not the final recipient)
 				isViaIntermediary := len(miv.Via) > 0 && miv.ViaIndex < len(miv.Via) && miv.Via[miv.ViaIndex] == deskID
-				
+
 				// Only change state to PENDING if NOT a via intermediary
 				// Via intermediaries keep the message in IN state
 				if !isViaIntermediary {
 					mivs[i].State = models.StatePENDING
 				}
-				
+
 				return nil
 			}
 		}

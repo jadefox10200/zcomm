@@ -48,10 +48,49 @@ func authMiddleware() gin.HandlerFunc {
 	}
 }
 
+func requireAdminMiddleware(store StorageBackend) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		accountIDValue, exists := c.Get("account_id")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Not authenticated"})
+			c.Abort()
+			return
+		}
+
+		accountID, ok := accountIDValue.(string)
+		if !ok || accountID == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid authentication context"})
+			c.Abort()
+			return
+		}
+
+		account, err := store.GetAccountByID(accountID)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Account not found"})
+			c.Abort()
+			return
+		}
+
+		if account.Role != models.AccountRoleAdmin {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+			c.Abort()
+			return
+		}
+
+		if account.Status != models.AccountStatusActive {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Admin account is not active"})
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	}
+}
+
 const (
-	maxFileSize         = 10 * 1024 * 1024 // 10MB
-	maxFileExtLength    = 10               // Maximum length for file extension
-	maxFilenameLength   = 100              // Maximum length for sanitized filename
+	maxFileSize       = 10 * 1024 * 1024 // 10MB
+	maxFileExtLength  = 10               // Maximum length for file extension
+	maxFilenameLength = 100              // Maximum length for sanitized filename
 )
 
 // Compiled regex for filename sanitization (compiled once at package level)
@@ -97,10 +136,23 @@ func (s *Server) registerAccount(c *gin.Context) {
 	}
 
 	// Create account
+	accounts, err := s.storage.ListAccounts()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check existing accounts"})
+		return
+	}
+
+	role := models.AccountRoleUser
+	if len(accounts) == 0 {
+		role = models.AccountRoleAdmin
+	}
+
 	account := &models.Account{
 		Username:         req.Username,
 		PasswordHash:     passwordHash,
 		DisplayName:      req.DisplayName,
+		Role:             role,
+		Status:           models.AccountStatusActive,
 		Desks:            []string{},
 		BirthdayHash:     birthdayHash,
 		FirstPetNameHash: firstPetHash,
@@ -175,6 +227,15 @@ func (s *Server) loginAccount(c *gin.Context) {
 		return
 	}
 
+	if account.Status == models.AccountStatusLocked {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Account is locked. Please contact an administrator."})
+		return
+	}
+	if account.Status == models.AccountStatusClosed {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Account is closed."})
+		return
+	}
+
 	// Verify password
 	valid, err := crypto.VerifyPassword(req.Password, account.PasswordHash)
 	if err != nil || !valid {
@@ -228,6 +289,11 @@ func (s *Server) recoverPassword(c *gin.Context) {
 		return
 	}
 
+	if account.Status == models.AccountStatusClosed {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Account is closed."})
+		return
+	}
+
 	// Verify all security answers
 	validBirthday, err := crypto.VerifyPassword(req.Birthday, account.BirthdayHash)
 	if err != nil || !validBirthday {
@@ -256,12 +322,169 @@ func (s *Server) recoverPassword(c *gin.Context) {
 
 	// Update password
 	account.PasswordHash = newPasswordHash
+	account.ForcePasswordReset = false
+	if account.Status == models.AccountStatusLocked {
+		account.Status = models.AccountStatusActive
+		account.LockedAt = nil
+	}
 	if err := s.storage.UpdateAccount(account); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update password"})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Password updated successfully"})
+}
+
+func (s *Server) adminCountUsers(c *gin.Context) {
+	accounts, err := s.storage.ListAccounts()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count users"})
+		return
+	}
+
+	active := 0
+	locked := 0
+	closed := 0
+	admins := 0
+
+	for _, account := range accounts {
+		if account.Role == models.AccountRoleAdmin {
+			admins++
+		}
+
+		switch account.Status {
+		case models.AccountStatusLocked:
+			locked++
+		case models.AccountStatusClosed:
+			closed++
+		default:
+			active++
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"total":  len(accounts),
+		"active": active,
+		"locked": locked,
+		"closed": closed,
+		"admins": admins,
+	})
+}
+
+func (s *Server) adminListUsers(c *gin.Context) {
+	accounts, err := s.storage.ListAccounts()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list users"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"users": accounts})
+}
+
+func (s *Server) adminLockUser(c *gin.Context) {
+	accountID := c.Param("account_id")
+	if accountID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "account_id is required"})
+		return
+	}
+
+	account, err := s.storage.GetAccountByID(accountID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Account not found"})
+		return
+	}
+
+	now := time.Now()
+	account.Status = models.AccountStatusLocked
+	account.LockedAt = &now
+	if err := s.storage.UpdateAccount(account); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to lock account"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Account locked", "account": account})
+}
+
+func (s *Server) adminUnlockUser(c *gin.Context) {
+	accountID := c.Param("account_id")
+	if accountID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "account_id is required"})
+		return
+	}
+
+	account, err := s.storage.GetAccountByID(accountID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Account not found"})
+		return
+	}
+
+	account.Status = models.AccountStatusActive
+	account.LockedAt = nil
+	if err := s.storage.UpdateAccount(account); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to unlock account"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Account unlocked", "account": account})
+}
+
+func (s *Server) adminCloseUser(c *gin.Context) {
+	accountID := c.Param("account_id")
+	if accountID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "account_id is required"})
+		return
+	}
+
+	account, err := s.storage.GetAccountByID(accountID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Account not found"})
+		return
+	}
+
+	now := time.Now()
+	account.Status = models.AccountStatusClosed
+	account.ClosedAt = &now
+	if err := s.storage.UpdateAccount(account); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to close account"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Account closed", "account": account})
+}
+
+func (s *Server) adminResetUserPassword(c *gin.Context) {
+	accountID := c.Param("account_id")
+	if accountID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "account_id is required"})
+		return
+	}
+
+	var req models.AdminResetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	account, err := s.storage.GetAccountByID(accountID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Account not found"})
+		return
+	}
+
+	newPasswordHash, err := crypto.HashPassword(req.NewPassword)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
+		return
+	}
+
+	account.PasswordHash = newPasswordHash
+	account.ForcePasswordReset = true
+	if err := s.storage.UpdateAccount(account); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reset password"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Password reset successfully", "account": account})
 }
 
 // Desk handlers
@@ -659,10 +882,10 @@ func (s *Server) getConversation(c *gin.Context) {
 				// Don't recalculate - this miv has been explicitly removed
 				continue
 			}
-			
+
 			normalizedFrom := crypto.NormalizeDeskID(miv.From)
 			normalizedMivTo := crypto.NormalizeDeskID(miv.ArrowTo)
-			
+
 			// Check if this miv is FROM the querying desk first (outgoing)
 			if normalizedFrom == normalizedDeskID {
 				// For outgoing mivs, check if there's a reply or if it's forgotten
@@ -718,17 +941,17 @@ func (s *Server) createConversation(c *gin.Context) {
 	bodyBytes, _ := io.ReadAll(c.Request.Body)
 	log.Printf("🔍 DEBUG: Raw JSON body length: %d bytes", len(bodyBytes))
 	log.Printf("🔍 DEBUG: Raw JSON body: %s", string(bodyBytes))
-	
+
 	// Check if cc_bodies exists in raw JSON
 	if strings.Contains(string(bodyBytes), "cc_bodies") {
 		log.Printf("✅ cc_bodies found in raw JSON")
 	} else {
 		log.Printf("❌ cc_bodies NOT found in raw JSON")
 	}
-	
+
 	// Restore body for binding
 	c.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-	
+
 	var req models.CreateConversationRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -868,9 +1091,9 @@ func (s *Server) createConversation(c *gin.Context) {
 		ArrowTo:        deskID, // Arrow points back to sender for their SENT basket
 		Type:           models.MivTypeMiv,
 		Subject:        req.Subject,
-		Body:           req.SenderBody, // Store sender's encrypted body directly
+		Body:           req.SenderBody,   // Store sender's encrypted body directly
 		State:          models.StateSENT, // Sender sees SENT
-		IsEncrypted:    true,  // All messages are E2E encrypted
+		IsEncrypted:    true,             // All messages are E2E encrypted
 		FontFamily:     req.FontFamily,
 		FontSize:       req.FontSize,
 		LineHeight:     req.LineHeight,
@@ -886,18 +1109,18 @@ func (s *Server) createConversation(c *gin.Context) {
 
 	// Create RECIPIENT's miv (state = IN) in the same shared conversation
 	recipientMiv := &models.ConversationMiv{
-		ConversationID: conv.ID,                 // Same shared conversation ID
-		Owner:          normalizedRecipient,      // Recipient owns this copy
-		SeqNo:          1,                        // Same sequence number as sender's
+		ConversationID: conv.ID,             // Same shared conversation ID
+		Owner:          normalizedRecipient, // Recipient owns this copy
+		SeqNo:          1,                   // Same sequence number as sender's
 		From:           deskID,
 		To:             req.To, // Final recipient for display
 		Cc:             req.Cc,
-		ArrowTo:        actualRecipient,      // Arrow points to actual recipient (via or final)
-		Type:           firstRecipientType,   // VIA if intermediary, MIV if final recipient
+		ArrowTo:        actualRecipient,    // Arrow points to actual recipient (via or final)
+		Type:           firstRecipientType, // VIA if intermediary, MIV if final recipient
 		Subject:        req.Subject,
 		Body:           req.RecipientBody, // Store recipient's encrypted body directly
-		State:          models.StateIN, // Recipient sees IN
-		IsEncrypted:    true,  // All messages are E2E encrypted
+		State:          models.StateIN,    // Recipient sees IN
+		IsEncrypted:    true,              // All messages are E2E encrypted
 		FontFamily:     req.FontFamily,
 		FontSize:       req.FontSize,
 		LineHeight:     req.LineHeight,
@@ -926,43 +1149,49 @@ func (s *Server) createConversation(c *gin.Context) {
 	for _, ccRecipient := range req.Cc {
 		if ccRecipient != "" {
 			log.Printf("🔍 Processing CC recipient: %s", ccRecipient)
-			
+
 			// Get CC-specific encrypted body from the map
 			if req.CcBodies == nil {
 				log.Printf("❌ ERROR: CcBodies map is nil but CC recipients exist")
 				c.JSON(http.StatusBadRequest, gin.H{"error": "CC recipients specified but no CC bodies provided"})
 				return
 			}
-			
+
 			ccBody, ok := req.CcBodies[ccRecipient]
 			if !ok || ccBody == "" {
 				log.Printf("❌ ERROR: No encrypted body found for CC recipient %s", ccRecipient)
-				log.Printf("   Available keys in CcBodies: %v", func() []string { keys := []string{}; for k := range req.CcBodies { keys = append(keys, k) }; return keys }())
+				log.Printf("   Available keys in CcBodies: %v", func() []string {
+					keys := []string{}
+					for k := range req.CcBodies {
+						keys = append(keys, k)
+					}
+					return keys
+				}())
 				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("No encrypted body for CC recipient %s", ccRecipient)})
 				return
 			}
-			
+
 			log.Printf("  ✅ Found CC-specific body: %s", ccBody[:min(40, len(ccBody))])
-			
+
 			ccMiv := &models.ConversationMiv{
-				ConversationID: conv.ID, // SAME conversation as sender/recipient
+				ConversationID: conv.ID,     // SAME conversation as sender/recipient
 				Owner:          ccRecipient, // CRITICAL: CC recipient owns their copy
-				SeqNo:          1, // First miv from CC recipient's perspective
+				SeqNo:          1,           // First miv from CC recipient's perspective
 				From:           deskID,
-				To:             req.To, // Original recipient for display
-				Cc:             req.Cc, // Include all CC recipients for reference
-				ArrowTo:        ccRecipient, // Arrow points to CC recipient
+				To:             req.To,           // Original recipient for display
+				Cc:             req.Cc,           // Include all CC recipients for reference
+				ArrowTo:        ccRecipient,      // Arrow points to CC recipient
 				Type:           models.MivTypeCC, // CC copy
 				Subject:        req.Subject,
-				Body:           ccBody, // Use CC recipient's own encrypted body
+				Body:           ccBody,         // Use CC recipient's own encrypted body
 				State:          models.StateIN, // CC mivs start in IN state
-				IsEncrypted:    true,  // All messages are E2E encrypted
+				IsEncrypted:    true,           // All messages are E2E encrypted
 				IsAck:          false,
 				FontFamily:     req.FontFamily,
 				FontSize:       req.FontSize,
 				LineHeight:     req.LineHeight,
-				Via:            req.Via,   // Include via routing for display
-				ViaIndex:       0,         // Via routing info for display only (CC doesn't participate in routing)
+				Via:            req.Via, // Include via routing for display
+				ViaIndex:       0,       // Via routing info for display only (CC doesn't participate in routing)
 				IsViaRejected:  false,
 			}
 
@@ -1106,19 +1335,19 @@ func (s *Server) replyToConversation(c *gin.Context) {
 
 	miv := &models.ConversationMiv{
 		ConversationID: conversationID,
-		Owner:          deskID, // CRITICAL: Sender owns their SENT copy
+		Owner:          deskID,    // CRITICAL: Sender owns their SENT copy
 		SeqNo:          nextSeqNo, // Set explicit sequence number
 		From:           deskID,
 		To:             recipientID,
-		Via:            viaRecipients, // Reversed via routing for reply
-		ViaIndex:       0, // Start at beginning of via chain
-		Cc:             ccRecipients, // Include all CC recipients from conversation history
-		ArrowTo:        actualRecipient, // Who actually receives this reply (first via or final recipient)
+		Via:            viaRecipients,     // Reversed via routing for reply
+		ViaIndex:       0,                 // Start at beginning of via chain
+		Cc:             ccRecipients,      // Include all CC recipients from conversation history
+		ArrowTo:        actualRecipient,   // Who actually receives this reply (first via or final recipient)
 		Type:           models.MivTypeMiv, // Regular message
 		Subject:        conv.Subject,
-		Body:           req.SenderBody, // Store sender's encrypted body directly
+		Body:           req.SenderBody,   // Store sender's encrypted body directly
 		State:          models.StateSENT, // Use SENT state for replies
-		IsEncrypted:    true,  // All messages are E2E encrypted
+		IsEncrypted:    true,             // All messages are E2E encrypted
 		IsAck:          req.IsAck,
 		FontFamily:     req.FontFamily,
 		FontSize:       req.FontSize,
@@ -1132,18 +1361,18 @@ func (s *Server) replyToConversation(c *gin.Context) {
 
 	// CRITICAL: Create recipient's copy of the reply in the SAME conversation
 	// Both sender and recipient share the same conversation ID, but own different mivs
-	
+
 	// For via routing, create miv for the FIRST via intermediary (actualRecipient)
 	// NOT the final recipient
 	normalizedActualRecipient := crypto.NormalizeDeskID(actualRecipient)
-	
+
 	// Determine the type for the actual recipient
 	// If they are a via intermediary (not the final recipient), mark as VIA
 	actualRecipientType := models.MivTypeMiv
 	if len(viaRecipients) > 0 && actualRecipient != recipientID {
 		actualRecipientType = models.MivTypeVia
 	}
-	
+
 	// Get the next sequence number for actual recipient's mivs in this conversation
 	actualRecipientMivs, err := s.storage.GetConversationMivs(conversationID, normalizedActualRecipient)
 	if err != nil {
@@ -1153,7 +1382,7 @@ func (s *Server) replyToConversation(c *gin.Context) {
 
 		// Create the reply miv for actual recipient in the SAME conversation
 		recipientReplyMiv := &models.ConversationMiv{
-			ConversationID: conversationID, // SAME conversation as sender
+			ConversationID: conversationID,            // SAME conversation as sender
 			Owner:          normalizedActualRecipient, // CRITICAL: Actual recipient (via or final) owns their IN copy
 			SeqNo:          actualRecipientSeqNo,
 			From:           deskID,
@@ -1165,8 +1394,8 @@ func (s *Server) replyToConversation(c *gin.Context) {
 			Type:           actualRecipientType,       // VIA if intermediary, MIV if final recipient
 			Subject:        conv.Subject,
 			Body:           req.RecipientBody, // Store recipient's encrypted body directly
-			State:          models.StateIN, // IN state for recipient
-			IsEncrypted:    true,  // All messages are E2E encrypted
+			State:          models.StateIN,    // IN state for recipient
+			IsEncrypted:    true,              // All messages are E2E encrypted
 			IsAck:          req.IsAck,
 			FontFamily:     req.FontFamily,
 			FontSize:       req.FontSize,
@@ -1201,40 +1430,40 @@ func (s *Server) replyToConversation(c *gin.Context) {
 				log.Printf("ERROR: Failed to get mivs for CC recipient %s: %v", ccRecipient, err)
 				continue
 			}
-			
+
 			nextSeqNo := len(ccMivs) + 1
 			log.Printf("DEBUG: Creating CC reply miv #%d in conversation %s for recipient %s", nextSeqNo, conv.ID, ccRecipient)
-			
+
 			// Get CC-specific encrypted body from the map
 			if req.CcBodies == nil {
 				log.Printf("❌ ERROR: CcBodies map is nil but CC recipients exist in reply")
 				c.JSON(http.StatusBadRequest, gin.H{"error": "CC recipients specified but no CC bodies provided"})
 				return
 			}
-			
+
 			ccBody, ok := req.CcBodies[ccRecipient]
 			if !ok || ccBody == "" {
 				log.Printf("❌ ERROR: No encrypted body found for CC recipient %s in reply", ccRecipient)
 				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("No encrypted body for CC recipient %s", ccRecipient)})
 				return
 			}
-			
+
 			log.Printf("  ✅ Found CC-specific reply body: %s", ccBody[:min(40, len(ccBody))])
-			
+
 			// Create CC copy of the reply in the SAME conversation
 			ccReplyMiv := &models.ConversationMiv{
-				ConversationID: conv.ID, // SAME conversation
+				ConversationID: conv.ID,     // SAME conversation
 				Owner:          ccRecipient, // CRITICAL: CC recipient owns their copy
 				SeqNo:          nextSeqNo,
 				From:           deskID,
-				To:             recipientID, // Original recipient for display
-				Cc:             ccRecipients, // All CC recipients for reference
-				ArrowTo:        ccRecipient, // Arrow points to CC recipient
+				To:             recipientID,      // Original recipient for display
+				Cc:             ccRecipients,     // All CC recipients for reference
+				ArrowTo:        ccRecipient,      // Arrow points to CC recipient
 				Type:           models.MivTypeCC, // CC copy
 				Subject:        conv.Subject,
-				Body:           ccBody, // Use CC recipient's own encrypted body
+				Body:           ccBody,         // Use CC recipient's own encrypted body
 				State:          models.StateIN, // CC mivs use IN state
-				IsEncrypted:    true,  // All messages are E2E encrypted
+				IsEncrypted:    true,           // All messages are E2E encrypted
 				IsAck:          req.IsAck,
 				FontFamily:     req.FontFamily,
 				FontSize:       req.FontSize,
@@ -1243,14 +1472,14 @@ func (s *Server) replyToConversation(c *gin.Context) {
 				ViaIndex:       0,             // Via routing info for display only
 				IsViaRejected:  false,
 			}
-			
+
 			if err := s.storage.CreateConversationMiv(ccReplyMiv); err != nil {
 				log.Printf("ERROR: Failed to create CC reply miv: %v", err)
 				continue // Skip if can't create CC copy
 			}
-			
+
 			log.Printf("DEBUG: Successfully created CC reply miv %s", ccReplyMiv.ID)
-			
+
 			// Create notification for CC recipient
 			normalizedCc := crypto.NormalizeDeskID(ccRecipient)
 			notifType := models.NotificationTypeReply
@@ -1258,7 +1487,7 @@ func (s *Server) replyToConversation(c *gin.Context) {
 			if req.IsAck {
 				message = fmt.Sprintf("CC ACK from %s in: %s", deskID, conv.Subject)
 			}
-			
+
 			ccNotification := &models.Notification{
 				DeskID:         normalizedCc,
 				Type:           notifType,
@@ -1385,7 +1614,7 @@ func (s *Server) answerCcMiv(c *gin.Context) {
 	// For now, just indicate that answering should be done via the normal reply flow
 	// The frontend should allow CC recipients to reply to the conversation
 	c.JSON(http.StatusOK, gin.H{
-		"message": "To answer a CC, use the standard reply endpoint",
+		"message":         "To answer a CC, use the standard reply endpoint",
 		"conversation_id": conversationID,
 		"original_sender": originalSender,
 	})
@@ -1720,7 +1949,7 @@ func (s *Server) uploadFile(c *gin.Context) {
 	// Validate magic bytes for common image formats
 	isValidImage := false
 	detectedExt := ""
-	
+
 	// JPEG: FF D8 FF
 	if len(buffer) >= 3 && buffer[0] == 0xFF && buffer[1] == 0xD8 && buffer[2] == 0xFF {
 		isValidImage = true
@@ -1751,7 +1980,7 @@ func (s *Server) uploadFile(c *gin.Context) {
 
 	// Validate that the detected file type matches the declared content type
 	if detectedExt != expectedExt {
-		log.Printf("Upload error: Content-Type mismatch - declared: %s (%s), detected: %s", 
+		log.Printf("Upload error: Content-Type mismatch - declared: %s (%s), detected: %s",
 			contentType, expectedExt, detectedExt)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "File type mismatch. The file content does not match the declared type"})
 		return
@@ -1760,7 +1989,7 @@ func (s *Server) uploadFile(c *gin.Context) {
 	// Sanitize the original filename to prevent path traversal attacks
 	// Use a whitelist approach: only allow alphanumeric, dash, underscore, and dot
 	sanitizedFilename := sanitizeFilename(file.Filename)
-	
+
 	// Extract and validate the file extension
 	ext := filepath.Ext(sanitizedFilename)
 	if ext == "" || len(ext) > maxFileExtLength {
@@ -1794,7 +2023,7 @@ func (s *Server) uploadFile(c *gin.Context) {
 
 	// Use filepath.Join for safe path construction
 	filePath := filepath.Join(uploadDir, filename)
-	
+
 	// Additional security: Ensure the final path is still within the upload directory
 	absUploadDir, err := filepath.Abs(uploadDir)
 	if err != nil {
@@ -1802,14 +2031,14 @@ func (s *Server) uploadFile(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 		return
 	}
-	
+
 	absFilePath, err := filepath.Abs(filePath)
 	if err != nil {
 		log.Printf("Upload error: Failed to get absolute path of file - %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 		return
 	}
-	
+
 	if !strings.HasPrefix(absFilePath, absUploadDir) {
 		log.Printf("Upload error: Path traversal attempt detected - file path outside upload directory")
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid filename"})
@@ -1842,9 +2071,9 @@ func (s *Server) uploadFile(c *gin.Context) {
 		}
 		serverURL = fmt.Sprintf("%s://%s", scheme, host)
 	}
-	
+
 	fileURL := fmt.Sprintf("%s/uploads/%s", serverURL, filename)
-	
+
 	log.Printf("File uploaded successfully: %s (size: %d bytes, type: %s)", filename, file.Size, contentType)
 
 	c.JSON(http.StatusOK, gin.H{
@@ -1857,18 +2086,18 @@ func (s *Server) uploadFile(c *gin.Context) {
 func sanitizeFilename(filename string) string {
 	// Remove any path components
 	filename = filepath.Base(filename)
-	
+
 	// Replace spaces with underscores
 	filename = strings.ReplaceAll(filename, " ", "_")
-	
+
 	// Use package-level regex to keep only safe characters: alphanumeric, dot, hyphen, underscore
 	filename = safeFilenameRegex.ReplaceAllString(filename, "")
-	
+
 	// Prevent filenames that start with a dot (hidden files)
 	if strings.HasPrefix(filename, ".") {
 		filename = "file" + filename
 	}
-	
+
 	// Limit filename length using package-level constant
 	if len(filename) > maxFilenameLength {
 		ext := filepath.Ext(filename)
@@ -1878,7 +2107,7 @@ func sanitizeFilename(filename string) string {
 		}
 		filename = nameWithoutExt + ext
 	}
-	
+
 	return filename
 }
 
@@ -1930,7 +2159,7 @@ func (s *Server) approveViaRouting(c *gin.Context) {
 
 	// Calculate next via index
 	nextViaIndex := miv.ViaIndex + 1
-	
+
 	// Determine next recipient
 	var nextRecipient string
 	var nextArrowTo string
@@ -2005,7 +2234,7 @@ func (s *Server) approveViaRouting(c *gin.Context) {
 		Type:           newMivType, // VIA if intermediary, MIV if final recipient
 		Subject:        miv.Subject,
 		Body:           req.NextRecipientBody, // Use re-encrypted body for next recipient
-		State:          models.StateIN, // Bob sees it in his IN basket
+		State:          models.StateIN,        // Bob sees it in his IN basket
 		IsEncrypted:    miv.IsEncrypted,
 		IsAck:          miv.IsAck, // CRITICAL: Preserve ACK flag when forwarding
 		FontFamily:     miv.FontFamily,
@@ -2031,7 +2260,7 @@ func (s *Server) approveViaRouting(c *gin.Context) {
 		notificationType = models.NotificationTypeNewMiv
 		notificationMessage = fmt.Sprintf("New message from %s: %s", miv.From, miv.Subject)
 	}
-	
+
 	notification := &models.Notification{
 		DeskID:         nextRecipient,
 		Type:           notificationType,
@@ -2099,56 +2328,56 @@ func (s *Server) rejectViaRouting(c *gin.Context) {
 	}
 	senderNextSeqNo := len(senderMivs) + 1
 
-       // Create rejector's SENT copy (like a normal reply)
-       rejectorMiv := &models.ConversationMiv{
-	       ConversationID: miv.ConversationID,
-	       Owner:          deskID,           // Rejector owns this copy
-	       SeqNo:          nextSeqNo,
-	       From:           deskID,           // From the person who rejected
-	       To:             miv.From,         // To the original sender
-	       ArrowTo:        deskID,           // Arrow points to rejector for SENT basket
-	       Type:           models.MivTypeMiv,
-	       Subject:        fmt.Sprintf("REJECTED: %s", miv.Subject),
-	       Body:           base64.StdEncoding.EncodeToString([]byte(rejectionBody)),
-	       State:          models.StateSENT, // Rejector sees it in SENT basket
-	       IsEncrypted:    true,
-	       IsAck:          true,             // Set as ACK - allows deletion without reply
-	       FontFamily:     miv.FontFamily,
-	       FontSize:       miv.FontSize,
-	       LineHeight:     miv.LineHeight,
-	       Via:            []string{},       // No via routing on the rejection
-	       ViaIndex:       0,
-	       IsViaRejected:  false,
-	       RejectedMivID:  miv.ID,          // Store reference to original MIV
-       }
+	// Create rejector's SENT copy (like a normal reply)
+	rejectorMiv := &models.ConversationMiv{
+		ConversationID: miv.ConversationID,
+		Owner:          deskID, // Rejector owns this copy
+		SeqNo:          nextSeqNo,
+		From:           deskID,   // From the person who rejected
+		To:             miv.From, // To the original sender
+		ArrowTo:        deskID,   // Arrow points to rejector for SENT basket
+		Type:           models.MivTypeMiv,
+		Subject:        fmt.Sprintf("REJECTED: %s", miv.Subject),
+		Body:           base64.StdEncoding.EncodeToString([]byte(rejectionBody)),
+		State:          models.StateSENT, // Rejector sees it in SENT basket
+		IsEncrypted:    true,
+		IsAck:          true, // Set as ACK - allows deletion without reply
+		FontFamily:     miv.FontFamily,
+		FontSize:       miv.FontSize,
+		LineHeight:     miv.LineHeight,
+		Via:            []string{}, // No via routing on the rejection
+		ViaIndex:       0,
+		IsViaRejected:  false,
+		RejectedMivID:  miv.ID, // Store reference to original MIV
+	}
 
 	if err := s.storage.CreateConversationMiv(rejectorMiv); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create rejector miv"})
 		return
 	}
 
-       // Create sender's IN copy (they receive the rejection)
-       senderRejectionMiv := &models.ConversationMiv{
-	       ConversationID: miv.ConversationID,
-	       Owner:          miv.From,         // Sender owns this copy
-	       SeqNo:          senderNextSeqNo,
-	       From:           deskID,           // From the person who rejected
-	       To:             miv.From,         // To the original sender
-	       ArrowTo:        miv.From,         // Arrow points to sender
-	       Type:           models.MivTypeMiv,
-	       Subject:        fmt.Sprintf("REJECTED: %s", miv.Subject),
-	       Body:           req.RecipientBody,
-	       State:          models.StateIN,   // Sender sees it in IN basket
-	       IsEncrypted:    true,
-	       IsAck:          true,             // Set as ACK - sender can delete or reply
-	       FontFamily:     miv.FontFamily,
-	       FontSize:       miv.FontSize,
-	       LineHeight:     miv.LineHeight,
-	       Via:            []string{},       // No via routing on the rejection
-	       ViaIndex:       0,
-	       IsViaRejected:  false,
-	       RejectedMivID:  miv.ID,          // Store reference to original MIV
-       }
+	// Create sender's IN copy (they receive the rejection)
+	senderRejectionMiv := &models.ConversationMiv{
+		ConversationID: miv.ConversationID,
+		Owner:          miv.From, // Sender owns this copy
+		SeqNo:          senderNextSeqNo,
+		From:           deskID,   // From the person who rejected
+		To:             miv.From, // To the original sender
+		ArrowTo:        miv.From, // Arrow points to sender
+		Type:           models.MivTypeMiv,
+		Subject:        fmt.Sprintf("REJECTED: %s", miv.Subject),
+		Body:           req.RecipientBody,
+		State:          models.StateIN, // Sender sees it in IN basket
+		IsEncrypted:    true,
+		IsAck:          true, // Set as ACK - sender can delete or reply
+		FontFamily:     miv.FontFamily,
+		FontSize:       miv.FontSize,
+		LineHeight:     miv.LineHeight,
+		Via:            []string{}, // No via routing on the rejection
+		ViaIndex:       0,
+		IsViaRejected:  false,
+		RejectedMivID:  miv.ID, // Store reference to original MIV
+	}
 
 	if err := s.storage.CreateConversationMiv(senderRejectionMiv); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create sender rejection miv"})
@@ -2194,27 +2423,27 @@ func (s *Server) rejectViaRouting(c *gin.Context) {
 	// Send rejection notices to all CC recipients in the SAME conversation
 	if len(miv.Cc) > 0 {
 		log.Printf("DEBUG: Sending rejection notices to %d CC recipients", len(miv.Cc))
-		
+
 		for _, ccRecipient := range miv.Cc {
 			if ccRecipient == "" || ccRecipient == miv.From || ccRecipient == deskID {
 				continue // Skip empty, sender, and rejector
 			}
-			
+
 			normalizedCc := crypto.NormalizeDeskID(ccRecipient)
-			
+
 			// Get existing mivs for CC recipient to determine next SeqNo
 			ccMivs, err := s.storage.GetConversationMivs(miv.ConversationID, ccRecipient)
 			if err != nil {
 				log.Printf("ERROR: Failed to get mivs for CC recipient %s: %v", ccRecipient, err)
 				continue
 			}
-			
+
 			ccNextSeqNo := len(ccMivs) + 1
-			
+
 			// Create CC copy of the rejection notice in the SAME conversation
 			ccRejectionMiv := &models.ConversationMiv{
 				ConversationID: miv.ConversationID, // SAME conversation
-				Owner:          ccRecipient, // CC recipient owns their copy
+				Owner:          ccRecipient,        // CC recipient owns their copy
 				SeqNo:          ccNextSeqNo,
 				From:           deskID,
 				To:             miv.From,
@@ -2234,14 +2463,14 @@ func (s *Server) rejectViaRouting(c *gin.Context) {
 				IsViaRejected:  true, // Mark as rejected for display
 				RejectedMivID:  miv.ID,
 			}
-			
+
 			if err := s.storage.CreateConversationMiv(ccRejectionMiv); err != nil {
 				log.Printf("ERROR: Failed to create CC rejection miv: %v", err)
 				continue
 			}
-			
+
 			log.Printf("DEBUG: Created CC rejection miv %s for recipient %s", ccRejectionMiv.ID, ccRecipient)
-			
+
 			// Create notification for CC recipient
 			ccNotification := &models.Notification{
 				DeskID:         normalizedCc,

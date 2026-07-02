@@ -28,6 +28,7 @@ type StorageBackend interface {
 	CreateAccount(account *models.Account) error
 	GetAccountByID(id string) (*models.Account, error)
 	GetAccountByUsername(username string) (*models.Account, error)
+	ListAccounts() ([]*models.Account, error)
 	UpdateAccount(account *models.Account) error
 
 	// Desk methods
@@ -83,21 +84,21 @@ func NewServer() *Server {
 	if err != nil {
 		panic("Failed to initialize SQLite storage: " + err.Error())
 	}
-	
+
 	s := &Server{
 		storage: sqliteStorage,
 		router:  gin.Default(),
 	}
 
 	s.setupRoutes()
-	
+
 	// Load test users for development
 	// if err := s.loadTestUsers(); err != nil {
-		// Just log the error, don't fail server startup
-		// This allows the server to continue even if test users fail to load
-		// println("Warning: Failed to load test users:", err.Error())
+	// Just log the error, don't fail server startup
+	// This allows the server to continue even if test users fail to load
+	// println("Warning: Failed to load test users:", err.Error())
 	// }
-	
+
 	return s
 }
 
@@ -140,13 +141,24 @@ func (s *Server) setupRoutes() {
 	protected := s.router.Group("/api")
 	protected.Use(authMiddleware())
 	{
+		admin := protected.Group("/admin")
+		admin.Use(requireAdminMiddleware(s.storage))
+		{
+			admin.GET("/users/count", s.adminCountUsers)
+			admin.GET("/users", s.adminListUsers)
+			admin.POST("/users/:account_id/lock", s.adminLockUser)
+			admin.POST("/users/:account_id/unlock", s.adminUnlockUser)
+			admin.POST("/users/:account_id/close", s.adminCloseUser)
+			admin.POST("/users/:account_id/reset-password", s.adminResetUserPassword)
+		}
+
 		// Desk endpoints
 		protected.GET("/desks", s.listDesks)
 		protected.POST("/desks", s.createDesk)
 		protected.PUT("/desks/:desk_id", s.updateDesk)
 		protected.POST("/desks/switch", s.switchDesk)
-		protected.GET("/desks/:desk_id/public-key", s.getDeskPublicKey)     // Get public key for encryption
-		protected.POST("/desks/public-keys", s.getBatchDeskPublicKeys)       // Batch get public keys
+		protected.GET("/desks/:desk_id/public-key", s.getDeskPublicKey) // Get public key for encryption
+		protected.POST("/desks/public-keys", s.getBatchDeskPublicKeys)  // Batch get public keys
 
 		// Conversation endpoints
 		protected.GET("/conversations", s.listConversations)

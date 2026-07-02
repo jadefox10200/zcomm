@@ -1367,6 +1367,11 @@ function App() {
       {showUnlockModal && encryptedKeysPayload && (
         <UnlockKeysModal
           encryptedKeys={encryptedKeysPayload}
+          accountLabel={
+            account
+              ? `${account.display_name || account.username} (@${account.username})`
+              : undefined
+          }
           onUnlock={handleUnlockWithPassword}
           onCancel={() => {
             setShowUnlockModal(false);

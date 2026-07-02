@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jadefox10200/missiv/backend/internal/crypto"
@@ -37,7 +38,33 @@ func NewSQLiteStorage(dbPath string) (*SQLiteStorage, error) {
 		return nil, fmt.Errorf("failed to create schema: %w", err)
 	}
 
+	if err := ensureAccountsSchema(db); err != nil {
+		return nil, fmt.Errorf("failed to migrate accounts schema: %w", err)
+	}
+
 	return &SQLiteStorage{db: db}, nil
+}
+
+func ensureAccountsSchema(db *sql.DB) error {
+	alterStatements := []string{
+		"ALTER TABLE accounts ADD COLUMN role TEXT NOT NULL DEFAULT 'user'",
+		"ALTER TABLE accounts ADD COLUMN status TEXT NOT NULL DEFAULT 'active'",
+		"ALTER TABLE accounts ADD COLUMN locked_at DATETIME",
+		"ALTER TABLE accounts ADD COLUMN closed_at DATETIME",
+		"ALTER TABLE accounts ADD COLUMN force_password_reset BOOLEAN NOT NULL DEFAULT 0",
+		"ALTER TABLE accounts ADD COLUMN active_desk TEXT NOT NULL DEFAULT ''",
+	}
+
+	for _, stmt := range alterStatements {
+		if _, err := db.Exec(stmt); err != nil {
+			if strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
+				continue
+			}
+			return err
+		}
+	}
+
+	return nil
 }
 
 // Close closes the database connection
@@ -152,6 +179,12 @@ func (s *SQLiteStorage) CreateAccount(account *models.Account) error {
 		account.CreatedAt = time.Now()
 	}
 	account.UpdatedAt = time.Now()
+	if account.Role == "" {
+		account.Role = models.AccountRoleUser
+	}
+	if account.Status == "" {
+		account.Status = models.AccountStatusActive
+	}
 
 	// Check if username already exists
 	var exists bool
@@ -164,18 +197,18 @@ func (s *SQLiteStorage) CreateAccount(account *models.Account) error {
 	}
 
 	_, err = s.db.Exec(`
-		INSERT INTO accounts (id, username, password_hash, display_name, birthday_hash, first_pet_name_hash, mother_maiden_hash, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, account.ID, account.Username, account.PasswordHash, account.DisplayName, account.BirthdayHash, account.FirstPetNameHash, account.MotherMaidenHash, account.CreatedAt, account.UpdatedAt)
+		INSERT INTO accounts (id, username, password_hash, display_name, role, status, locked_at, closed_at, force_password_reset, active_desk, birthday_hash, first_pet_name_hash, mother_maiden_hash, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, account.ID, account.Username, account.PasswordHash, account.DisplayName, account.Role, account.Status, account.LockedAt, account.ClosedAt, account.ForcePasswordReset, account.ActiveDesk, account.BirthdayHash, account.FirstPetNameHash, account.MotherMaidenHash, account.CreatedAt, account.UpdatedAt)
 	return err
 }
 
 func (s *SQLiteStorage) GetAccountByID(id string) (*models.Account, error) {
 	account := &models.Account{}
 	err := s.db.QueryRow(`
-		SELECT id, username, password_hash, display_name, birthday_hash, first_pet_name_hash, mother_maiden_hash, created_at, updated_at
+		SELECT id, username, password_hash, display_name, role, status, locked_at, closed_at, force_password_reset, active_desk, birthday_hash, first_pet_name_hash, mother_maiden_hash, created_at, updated_at
 		FROM accounts WHERE id = ?
-	`, id).Scan(&account.ID, &account.Username, &account.PasswordHash, &account.DisplayName, &account.BirthdayHash, &account.FirstPetNameHash, &account.MotherMaidenHash, &account.CreatedAt, &account.UpdatedAt)
+	`, id).Scan(&account.ID, &account.Username, &account.PasswordHash, &account.DisplayName, &account.Role, &account.Status, &account.LockedAt, &account.ClosedAt, &account.ForcePasswordReset, &account.ActiveDesk, &account.BirthdayHash, &account.FirstPetNameHash, &account.MotherMaidenHash, &account.CreatedAt, &account.UpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("account not found")
@@ -205,9 +238,9 @@ func (s *SQLiteStorage) GetAccountByID(id string) (*models.Account, error) {
 func (s *SQLiteStorage) GetAccountByUsername(username string) (*models.Account, error) {
 	account := &models.Account{}
 	err := s.db.QueryRow(`
-		SELECT id, username, password_hash, display_name, birthday_hash, first_pet_name_hash, mother_maiden_hash, created_at, updated_at
+		SELECT id, username, password_hash, display_name, role, status, locked_at, closed_at, force_password_reset, active_desk, birthday_hash, first_pet_name_hash, mother_maiden_hash, created_at, updated_at
 		FROM accounts WHERE username = ?
-	`, username).Scan(&account.ID, &account.Username, &account.PasswordHash, &account.DisplayName, &account.BirthdayHash, &account.FirstPetNameHash, &account.MotherMaidenHash, &account.CreatedAt, &account.UpdatedAt)
+	`, username).Scan(&account.ID, &account.Username, &account.PasswordHash, &account.DisplayName, &account.Role, &account.Status, &account.LockedAt, &account.ClosedAt, &account.ForcePasswordReset, &account.ActiveDesk, &account.BirthdayHash, &account.FirstPetNameHash, &account.MotherMaidenHash, &account.CreatedAt, &account.UpdatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("account not found")
@@ -234,12 +267,60 @@ func (s *SQLiteStorage) GetAccountByUsername(username string) (*models.Account, 
 	return account, rows.Err()
 }
 
+func (s *SQLiteStorage) ListAccounts() ([]*models.Account, error) {
+	rows, err := s.db.Query(`
+		SELECT id, username, password_hash, display_name, role, status, locked_at, closed_at, force_password_reset, active_desk, birthday_hash, first_pet_name_hash, mother_maiden_hash, created_at, updated_at
+		FROM accounts
+		ORDER BY created_at DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	accounts := make([]*models.Account, 0)
+	for rows.Next() {
+		account := &models.Account{}
+		if err := rows.Scan(&account.ID, &account.Username, &account.PasswordHash, &account.DisplayName, &account.Role, &account.Status, &account.LockedAt, &account.ClosedAt, &account.ForcePasswordReset, &account.ActiveDesk, &account.BirthdayHash, &account.FirstPetNameHash, &account.MotherMaidenHash, &account.CreatedAt, &account.UpdatedAt); err != nil {
+			return nil, err
+		}
+
+		deskRows, err := s.db.Query("SELECT id FROM desks WHERE account_id = ?", account.ID)
+		if err != nil {
+			return nil, err
+		}
+
+		account.Desks = []string{}
+		for deskRows.Next() {
+			var deskID string
+			if err := deskRows.Scan(&deskID); err != nil {
+				deskRows.Close()
+				return nil, err
+			}
+			account.Desks = append(account.Desks, deskID)
+		}
+		if err := deskRows.Err(); err != nil {
+			deskRows.Close()
+			return nil, err
+		}
+		deskRows.Close()
+
+		accounts = append(accounts, account)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return accounts, nil
+}
+
 func (s *SQLiteStorage) UpdateAccount(account *models.Account) error {
 	account.UpdatedAt = time.Now()
 	_, err := s.db.Exec(`
-		UPDATE accounts SET username = ?, password_hash = ?, display_name = ?, birthday_hash = ?, first_pet_name_hash = ?, mother_maiden_hash = ?, updated_at = ?
+		UPDATE accounts SET username = ?, password_hash = ?, display_name = ?, role = ?, status = ?, locked_at = ?, closed_at = ?, force_password_reset = ?, active_desk = ?, birthday_hash = ?, first_pet_name_hash = ?, mother_maiden_hash = ?, updated_at = ?
 		WHERE id = ?
-	`, account.Username, account.PasswordHash, account.DisplayName, account.BirthdayHash, account.FirstPetNameHash, account.MotherMaidenHash, account.UpdatedAt, account.ID)
+	`, account.Username, account.PasswordHash, account.DisplayName, account.Role, account.Status, account.LockedAt, account.ClosedAt, account.ForcePasswordReset, account.ActiveDesk, account.BirthdayHash, account.FirstPetNameHash, account.MotherMaidenHash, account.UpdatedAt, account.ID)
 	return err
 }
 
@@ -254,7 +335,7 @@ func (s *SQLiteStorage) CreateDesk(desk *models.Desk, privateKey [32]byte) error
 	// In a production system, this should be encrypted with the user's password
 	// For E2E encryption, the frontend will handle encryption/decryption
 	privateKeyBytes := privateKey[:]
-	_,  err := s.db.Exec(`
+	_, err := s.db.Exec(`
 		INSERT INTO desks (id, account_id, display_name, public_key, private_key, auto_indent, 
 		                   font_family, font_size, line_height, default_salutation, default_closure, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -352,7 +433,7 @@ func (s *SQLiteStorage) UpdateDesk(desk *models.Desk) error {
 		UPDATE desks SET display_name = ?, auto_indent = ?, font_family = ?, font_size = ?,
 		                 line_height = ?, default_salutation = ?, default_closure = ? 
 		WHERE id = ?
-	`, desk.Name, desk.AutoIndent, desk.FontFamily, desk.FontSize, 
+	`, desk.Name, desk.AutoIndent, desk.FontFamily, desk.FontSize,
 		desk.LineHeight, desk.DefaultSalutation, desk.DefaultClosure, desk.ID)
 	return err
 }
@@ -645,7 +726,7 @@ func (s *SQLiteStorage) UpdateConversationMiv(miv *models.ConversationMiv) error
 
 func (s *SQLiteStorage) MarkConversationMivAsRead(mivID string, deskID string) error {
 	now := time.Now()
-	
+
 	// First, get the miv being marked as read to check if it's a via intermediary or CC recipient
 	var conversationID string
 	var seqNo int
@@ -661,7 +742,7 @@ func (s *SQLiteStorage) MarkConversationMivAsRead(mivID string, deskID string) e
 	if err != nil {
 		return err
 	}
-	
+
 	// Check if this is a via intermediary by checking if deskID is in the via array
 	var via []string
 	if viaJSON != "" && viaJSON != "null" {
@@ -669,13 +750,13 @@ func (s *SQLiteStorage) MarkConversationMivAsRead(mivID string, deskID string) e
 			return err
 		}
 	}
-	
+
 	// Determine if this reader is a via intermediary (not the final recipient)
 	isViaIntermediary := len(via) > 0 && viaIndex < len(via) && via[viaIndex] == deskID
-	
+
 	// Determine if this reader is a CC recipient
 	isCCRecipient := mivType == "CC"
-	
+
 	// Mark the recipient's miv as read
 	// Via intermediaries don't change state (stay IN)
 	// CC recipients and final recipients change state from IN to PENDING
@@ -697,7 +778,7 @@ func (s *SQLiteStorage) MarkConversationMivAsRead(mivID string, deskID string) e
 	if err != nil {
 		return err
 	}
-	
+
 	// ONLY send read receipt to sender if reader is the FINAL RECIPIENT (not a via intermediary or CC recipient)
 	if !isViaIntermediary && !isCCRecipient {
 		// Find and mark the sender's corresponding miv as read (their SENT copy)
@@ -711,7 +792,7 @@ func (s *SQLiteStorage) MarkConversationMivAsRead(mivID string, deskID string) e
 			AND deleted = 0
 		`, now, conversationID, fromDesk, seqNo)
 	}
-	
+
 	return err
 }
 
