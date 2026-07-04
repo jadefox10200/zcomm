@@ -184,7 +184,7 @@ function ConversationThread({
     attachment: NonNullable<ConversationMiv["attachments"]>[number]
   ) => {
     try {
-      const blob = await api.downloadAttachment(attachment.id);
+      const blob = await api.downloadAttachment(attachment.id, currentDeskId);
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;

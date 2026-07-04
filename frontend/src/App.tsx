@@ -894,6 +894,7 @@ function App() {
         sender_body: request.sender_body,
         recipient_body: request.recipient_body,
         cc_bodies: request.cc_bodies, // Include CC-specific encrypted bodies
+        attachment_ids: request.attachment_ids,
         font_family: request.font_family,
         font_size: request.font_size,
         line_height: request.line_height,

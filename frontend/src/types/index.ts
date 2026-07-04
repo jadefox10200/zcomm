@@ -40,6 +40,7 @@ export interface CreateMivRequest {
   sender_body: string;
   recipient_body: string;
   cc_bodies?: { [deskId: string]: string }; // Map of CC deskId to encrypted body
+  attachment_ids?: string[];
   font_family?: string;
   font_size?: string;
   line_height?: string;

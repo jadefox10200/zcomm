@@ -731,13 +731,11 @@ export const createContact = async (
 
 export const uploadAttachment = async (
   file: File,
-  deskId?: string
+  deskId: string
 ): Promise<UploadFileResponse> => {
   const formData = new FormData();
   formData.append("upload", file);
-  if (deskId) {
-    formData.append("desk_id", deskId);
-  }
+  formData.append("desk_id", deskId);
 
   const response = await fetch(`${API_BASE_URL}/attachments`, {
     method: "POST",
@@ -760,10 +758,17 @@ export const uploadAttachment = async (
   return response.json();
 };
 
-export const downloadAttachment = async (attachmentId: string): Promise<Blob> => {
-  const response = await fetch(`${API_BASE_URL}/attachments/${attachmentId}`, {
-    headers: getAuthHeaders(),
-  });
+export const downloadAttachment = async (
+  attachmentId: string,
+  deskId: string
+): Promise<Blob> => {
+  const query = `?desk_id=${encodeURIComponent(deskId)}`;
+  const response = await fetch(
+    `${API_BASE_URL}/attachments/${attachmentId}${query}`,
+    {
+      headers: getAuthHeaders(),
+    }
+  );
   if (!response.ok) {
     const errorData = await response
       .json()
