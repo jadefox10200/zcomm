@@ -10,6 +10,8 @@ RUN go mod download
 
 COPY . .
 
+RUN go mod tidy
+
 # Enable CGO for go-sqlite3
 ENV CGO_ENABLED=1
 
