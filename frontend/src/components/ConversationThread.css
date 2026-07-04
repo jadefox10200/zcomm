@@ -115,6 +115,55 @@
   padding-left: 0;
 }
 
+.message-attachments {
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.message-attachments-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6c6f76;
+  margin-bottom: 0.45rem;
+}
+
+.message-attachments-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.message-attachment-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.45rem 0;
+}
+
+.message-attachment-link {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  color: #204a87;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.message-attachment-link:hover {
+  text-decoration: underline;
+}
+
+.message-attachment-size {
+  color: #767b84;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
 .conversation-messages {
   flex: 1;
   overflow-y: auto;

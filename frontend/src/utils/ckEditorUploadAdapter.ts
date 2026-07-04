@@ -1,6 +1,6 @@
 /**
  * Custom upload adapter for CKEditor 5
- * Handles image uploads to the server via /api/upload endpoint
+ * Handles image uploads to the server via the authenticated /api/attachments endpoint
  * 
  * Note: Uses 'any' types for CKEditor loader and editor as these are internal
  * CKEditor types that are not properly exported in the build-classic package.

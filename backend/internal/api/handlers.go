@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -1119,6 +1120,10 @@ func (s *Server) createConversation(c *gin.Context) {
 		Subject: req.Subject,
 		DeskID:  deskID,
 	}
+	if err := s.validateAttachmentsForDesk(deskID, req.AttachmentIDs); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	if err := s.storage.CreateConversation(conv); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create conversation"})
@@ -1164,6 +1169,13 @@ func (s *Server) createConversation(c *gin.Context) {
 	if err := s.storage.CreateConversationMiv(senderMiv); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create sender miv"})
 		return
+	}
+	if err := s.assignAttachmentsToConversation(deskID, conv.ID, senderMiv.SeqNo, req.AttachmentIDs); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if attachments, err := s.attachmentsForSequence(conv.ID, senderMiv.SeqNo); err == nil {
+		senderMiv.Attachments = attachments
 	}
 
 	// Create RECIPIENT's miv (state = IN) in the same shared conversation
@@ -1412,9 +1424,17 @@ func (s *Server) replyToConversation(c *gin.Context) {
 		FontSize:       req.FontSize,
 		LineHeight:     req.LineHeight,
 	}
+	if err := s.validateAttachmentsForDesk(deskID, req.AttachmentIDs); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	if err := s.storage.CreateConversationMiv(miv); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create reply"})
+		return
+	}
+	if err := s.assignAttachmentsToConversation(deskID, conversationID, miv.SeqNo, req.AttachmentIDs); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -1949,8 +1969,14 @@ func (s *Server) deleteContact(c *gin.Context) {
 	c.JSON(http.StatusNoContent, nil)
 }
 
-// Upload handler - Production implementation
-func (s *Server) uploadFile(c *gin.Context) {
+// Upload handler - authenticated draft attachments
+func (s *Server) uploadAttachment(c *gin.Context) {
+	currentDeskID, err := s.getCurrentDeskID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		return
+	}
+
 	// Get the file from the request
 	file, err := c.FormFile("upload")
 	if err != nil {
@@ -2083,26 +2109,26 @@ func (s *Server) uploadFile(c *gin.Context) {
 	// Construct filename: uniqueID + timestamp + extension
 	filename := fmt.Sprintf("%s_%d%s", uniqueID, time.Now().Unix(), ext)
 
-	// Define upload directory (configurable via environment variable)
-	uploadDir := os.Getenv("UPLOAD_DIR")
-	if uploadDir == "" {
-		uploadDir = "./uploads"
+	// Define attachment directory (configurable via environment variable)
+	attachmentDir := os.Getenv("ATTACHMENT_DIR")
+	if attachmentDir == "" {
+		attachmentDir = "./attachments"
 	}
 
-	// Create uploads directory if it doesn't exist
-	if err := os.MkdirAll(uploadDir, 0755); err != nil {
-		log.Printf("Upload error: Failed to create upload directory - %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create upload directory"})
+	// Create attachment directory if it doesn't exist
+	if err := os.MkdirAll(attachmentDir, 0755); err != nil {
+		log.Printf("Upload error: Failed to create attachment directory - %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create attachment directory"})
 		return
 	}
 
 	// Use filepath.Join for safe path construction
-	filePath := filepath.Join(uploadDir, filename)
+	filePath := filepath.Join(attachmentDir, filename)
 
-	// Additional security: Ensure the final path is still within the upload directory
-	absUploadDir, err := filepath.Abs(uploadDir)
+	// Additional security: Ensure the final path is still within the attachment directory
+	absUploadDir, err := filepath.Abs(attachmentDir)
 	if err != nil {
-		log.Printf("Upload error: Failed to get absolute path of upload directory - %v", err)
+		log.Printf("Upload error: Failed to get absolute path of attachment directory - %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal server error"})
 		return
 	}
@@ -2127,34 +2153,135 @@ func (s *Server) uploadFile(c *gin.Context) {
 		return
 	}
 
-	// Return the full URL where the file can be accessed
-	serverURL := os.Getenv("SERVER_URL")
-	if serverURL == "" {
-		scheme := strings.ToLower(strings.TrimSpace(c.GetHeader("X-Forwarded-Proto")))
-		if scheme == "" {
-			scheme = "http"
-			if c.Request.TLS != nil {
-				scheme = "https"
-			}
-		}
-
-		host := strings.TrimSpace(c.GetHeader("X-Forwarded-Host"))
-		if host == "" {
-			host = c.Request.Host
-		}
-		if host == "" {
-			host = "localhost:8080"
-		}
-		serverURL = fmt.Sprintf("%s://%s", scheme, host)
+	attachment := &models.Attachment{
+		UploadedBy:       currentDeskID,
+		OriginalFilename: file.Filename,
+		StoredFilename:   filename,
+		ContentType:      declaredContentType,
+		Size:             file.Size,
 	}
-
-	fileURL := fmt.Sprintf("%s/uploads/%s", serverURL, filename)
+	if err := s.storage.CreateAttachment(attachment); err != nil {
+		_ = os.Remove(filePath)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to persist attachment metadata"})
+		return
+	}
 
 	log.Printf("File uploaded successfully: %s (size: %d bytes, type: %s)", filename, file.Size, declaredContentType)
 
-	c.JSON(http.StatusOK, gin.H{
-		"url": fileURL,
-	})
+	c.JSON(http.StatusOK, attachment)
+}
+
+func (s *Server) downloadAttachment(c *gin.Context) {
+	currentDeskID, err := s.getCurrentDeskID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		return
+	}
+
+	attachmentID := c.Param("attachment_id")
+	if attachmentID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "attachment_id is required"})
+		return
+	}
+
+	attachment, err := s.storage.GetAttachment(attachmentID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Attachment not found"})
+		return
+	}
+	if attachment.ConversationID == "" {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Attachment not yet assigned"})
+		return
+	}
+
+	mivs, err := s.storage.GetConversationMivs(attachment.ConversationID, currentDeskID)
+	if err != nil || len(mivs) == 0 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "You do not have access to this attachment"})
+		return
+	}
+
+	attachmentDir := os.Getenv("ATTACHMENT_DIR")
+	if attachmentDir == "" {
+		attachmentDir = "./attachments"
+	}
+	filePath := filepath.Join(attachmentDir, attachment.StoredFilename)
+	if _, err := os.Stat(filePath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Attachment file not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to access attachment"})
+		return
+	}
+
+	c.FileAttachment(filePath, attachment.OriginalFilename)
+}
+
+func (s *Server) getCurrentDeskID(c *gin.Context) (string, error) {
+	accountIDValue, exists := c.Get("account_id")
+	if !exists {
+		return "", fmt.Errorf("not authenticated")
+	}
+
+	accountID, ok := accountIDValue.(string)
+	if !ok || accountID == "" {
+		return "", fmt.Errorf("invalid authentication context")
+	}
+
+	account, err := s.storage.GetAccountByID(accountID)
+	if err != nil {
+		return "", fmt.Errorf("account not found")
+	}
+	if account.ActiveDesk == "" {
+		return "", fmt.Errorf("no active desk selected")
+	}
+
+	return account.ActiveDesk, nil
+}
+
+func (s *Server) validateAttachmentsForDesk(deskID string, attachmentIDs []string) error {
+	for _, attachmentID := range attachmentIDs {
+		attachment, err := s.storage.GetAttachment(attachmentID)
+		if err != nil {
+			return fmt.Errorf("attachment not found: %s", attachmentID)
+		}
+		if attachment.UploadedBy != deskID {
+			return fmt.Errorf("attachment %s does not belong to this desk", attachmentID)
+		}
+		if attachment.ConversationID != "" {
+			return fmt.Errorf("attachment %s is already assigned to a conversation", attachmentID)
+		}
+	}
+
+	return nil
+}
+
+func (s *Server) assignAttachmentsToConversation(deskID string, conversationID string, seqNo int, attachmentIDs []string) error {
+	if len(attachmentIDs) == 0 {
+		return nil
+	}
+
+	if err := s.validateAttachmentsForDesk(deskID, attachmentIDs); err != nil {
+		return err
+	}
+
+	return s.storage.AssignAttachmentsToConversation(conversationID, seqNo, attachmentIDs)
+}
+
+func (s *Server) attachmentsForSequence(conversationID string, seqNo int) ([]*models.Attachment, error) {
+	attachments, err := s.storage.ListAttachmentsByConversation(conversationID)
+	if err != nil {
+		return nil, err
+	}
+
+	filtered := make([]*models.Attachment, 0)
+	for _, attachment := range attachments {
+		if attachment.SeqNo == seqNo {
+			filtered = append(filtered, attachment)
+		}
+	}
+
+	return filtered, nil
 }
 
 // sanitizeFilename removes potentially dangerous characters from filenames

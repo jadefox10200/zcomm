@@ -55,6 +55,12 @@ type StorageBackend interface {
 	MarkConversationMivsAsRead(conversationID string, deskID string) error
 	DeleteConversationMivs(conversationID string, deskID string) error
 
+	// Attachment methods
+	CreateAttachment(attachment *models.Attachment) error
+	GetAttachment(id string) (*models.Attachment, error)
+	ListAttachmentsByConversation(conversationID string) ([]*models.Attachment, error)
+	AssignAttachmentsToConversation(conversationID string, seqNo int, attachmentIDs []string) error
+
 	// Contact methods
 	CreateContact(contact *models.Contact) error
 	GetContact(id string) (*models.Contact, error)
@@ -191,8 +197,9 @@ func (s *Server) setupRoutes() {
 		protected.PUT("/contacts/:contact_id", s.updateContact)
 		protected.DELETE("/contacts/:contact_id", s.deleteContact)
 
-		// Upload endpoint
-		protected.POST("/upload", s.uploadFile)
+		// Attachment endpoints
+		protected.POST("/attachments", s.uploadAttachment)
+		protected.GET("/attachments/:attachment_id", s.downloadAttachment)
 
 		// Legacy Identity endpoints (for backward compatibility)
 		protected.GET("/identity", s.getIdentity)
@@ -218,8 +225,6 @@ func (s *Server) setupRoutes() {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
-	// Serve uploaded files
-	s.router.Static("/uploads", "./uploads")
 }
 
 // Run starts the API server

@@ -576,6 +576,25 @@ function MivDetailWithContext({
     return formattedId;
   };
 
+  const handleAttachmentDownload = async (
+    attachment: NonNullable<ConversationMiv["attachments"]>[number]
+  ) => {
+    try {
+      const blob = await api.downloadAttachment(attachment.id);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = attachment.original_filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Failed to download attachment:", err);
+      alert("Failed to download attachment. Please try again.");
+    }
+  };
+
   const isContact = (deskIdRef: string) => {
     const normalizedId = normalizeDeskId(deskIdRef);
     return contacts.some((c) => c.desk_id_ref === normalizedId);
@@ -898,6 +917,27 @@ function MivDetailWithContext({
                     : decryptedBody || "[Encrypted - unable to display]",
                 }}
               />
+              {selectedMiv.attachments && selectedMiv.attachments.length > 0 && (
+                <div className="message-attachments">
+                  <div className="message-attachments-title">Attachments</div>
+                  <ul className="message-attachments-list">
+                    {selectedMiv.attachments.map((attachment) => (
+                      <li key={attachment.id} className="message-attachment-item">
+                        <button
+                          type="button"
+                          className="message-attachment-link"
+                          onClick={() => handleAttachmentDownload(attachment)}
+                        >
+                          {attachment.original_filename}
+                        </button>
+                        <span className="message-attachment-size">
+                          {Math.max(1, Math.round(attachment.size / 1024))} KB
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           </div>
 

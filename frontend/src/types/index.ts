@@ -185,6 +185,19 @@ export interface ConversationMiv {
   via_rejected_by?: string;
   via_rejection?: string;
   rejected_miv_id?: string;
+  attachments?: Attachment[];
+}
+
+export interface Attachment {
+  id: string;
+  conversation_id?: string;
+  seq_no: number;
+  uploaded_by: string;
+  original_filename: string;
+  stored_filename: string;
+  content_type: string;
+  size: number;
+  created_at: string;
 }
 
 export interface CreateConversationRequest {
@@ -195,6 +208,7 @@ export interface CreateConversationRequest {
   sender_body: string; // Encrypted body for sender (encrypted with sender's keys)
   recipient_body: string; // Encrypted body for recipient (encrypted with recipient's public key)
   cc_bodies?: { [deskId: string]: string }; // Encrypted bodies for each CC recipient (map of deskId -> encrypted body)
+  attachment_ids?: string[]; // Uploaded attachment IDs
   font_family?: string;
   font_size?: string;
   line_height?: string;
@@ -206,6 +220,7 @@ export interface ReplyToConversationRequest {
   cc_bodies?: { [deskId: string]: string }; // Encrypted bodies for each CC recipient
   is_ack?: boolean;
   cc?: string[];
+  attachment_ids?: string[];
   font_family?: string;
   font_size?: string;
   line_height?: string;
@@ -281,11 +296,15 @@ export interface UpdateContactRequest {
 }
 
 export interface UploadFileResponse {
-  url: string;
-  filename?: string;
-  original_filename?: string;
-  size?: number;
-  content_type?: string;
+  id: string;
+  conversation_id?: string;
+  seq_no: number;
+  uploaded_by: string;
+  original_filename: string;
+  stored_filename: string;
+  content_type: string;
+  size: number;
+  created_at: string;
 }
 
 export interface ListContactsResponse {

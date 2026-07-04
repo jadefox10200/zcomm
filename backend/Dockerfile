@@ -24,7 +24,9 @@ WORKDIR /app
 RUN apk add --no-cache sqlite-libs
 
 # Create data directory for database
-RUN mkdir -p /app/data
+RUN mkdir -p /app/data /app/attachments
+
+ENV ATTACHMENT_DIR=/app/attachments
 
 COPY --from=builder /app/zcomm .
 

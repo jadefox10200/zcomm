@@ -96,6 +96,25 @@ CREATE INDEX IF NOT EXISTS idx_conversation_mivs_created_at ON conversation_mivs
 CREATE INDEX IF NOT EXISTS idx_conversation_mivs_arrow_to ON conversation_mivs(arrow_to);
 CREATE INDEX IF NOT EXISTS idx_conversation_mivs_state ON conversation_mivs(state);
 
+-- Attachments table
+CREATE TABLE IF NOT EXISTS attachments (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT,
+    seq_no INTEGER NOT NULL DEFAULT 0,
+    uploaded_by TEXT NOT NULL,
+    original_filename TEXT NOT NULL,
+    stored_filename TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    created_at DATETIME NOT NULL,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+    FOREIGN KEY (uploaded_by) REFERENCES desks(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_attachments_conversation_id ON attachments(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_attachments_conversation_seq ON attachments(conversation_id, seq_no);
+CREATE INDEX IF NOT EXISTS idx_attachments_uploaded_by ON attachments(uploaded_by);
+
 -- Contacts table
 CREATE TABLE IF NOT EXISTS contacts (
     id TEXT PRIMARY KEY,

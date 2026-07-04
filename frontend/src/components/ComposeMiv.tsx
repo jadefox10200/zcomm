@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { CKEditor } from "@ckeditor/ckeditor5-react";
 import ClassicEditor from "@ckeditor/ckeditor5-build-classic";
-import { CreateMivRequest, Contact, Desk, ConversationMiv } from "../types";
+import { CreateMivRequest, Contact, Desk, ConversationMiv, Attachment } from "../types";
 import * as api from "../api/client";
 import { uploadPlugin } from "../utils/ckEditorUploadAdapter";
 import { buildMessageWithTemplate } from "../utils/messageTemplate";
@@ -18,11 +18,7 @@ interface ComposeMivProps {
   resubmitMiv?: ConversationMiv | null;
 }
 
-interface UploadedAttachment {
-  name: string;
-  url: string;
-  size: number;
-}
+type UploadedAttachment = Attachment;
 
 const ComposeMiv: React.FC<ComposeMivProps> = ({
   onSend,
@@ -466,8 +462,6 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
     setError(null);
 
     try {
-      const finalBody = appendAttachmentsToBody(body, attachments);
-
       // Get sender's private key for encryption
       const { getPrivateKey, encryptMessage } = await import("../utils/crypto");
       const senderPrivateKey = getPrivateKey(deskId);
@@ -489,7 +483,7 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
       // Encrypt TWO copies:
       // 1. Sender's copy: encrypted with sender's keys (sender can decrypt)
       const senderEncryptedBody = encryptMessage(
-        finalBody,
+        body,
         senderPublicKey,
         senderPrivateKey
       );
@@ -500,7 +494,7 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
 
       // 2. Recipient's copy: encrypted with recipient's public key + sender's private key
       const recipientEncryptedBody = encryptMessage(
-        finalBody,
+        body,
         recipientPublicKey,
         senderPrivateKey
       );
@@ -512,7 +506,7 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
             const ccPublicKeyResponse = await api.getDeskPublicKey(ccDeskId);
             const ccPublicKey = ccPublicKeyResponse.public_key;
             const ccEncryptedBody = encryptMessage(
-              finalBody,
+              body,
               ccPublicKey,
               senderPrivateKey
             );
@@ -528,6 +522,7 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
         sender_body: senderEncryptedBody, // Sender's encrypted copy
         recipient_body: recipientEncryptedBody, // Recipient's encrypted copy
         cc_bodies: Object.keys(ccBodies).length > 0 ? ccBodies : undefined, // CC recipients' encrypted copies
+        attachment_ids: attachments.map((attachment) => attachment.id),
         font_family: desk.font_family,
         font_size: desk.font_size,
         line_height: desk.line_height,
@@ -684,35 +679,6 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   };
 
-  const escapeHtml = (value: string) =>
-    value
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#39;");
-
-  const safeUrlAttr = (url: string) =>
-    url.replace(/"/g, "%22").replace(/'/g, "%27");
-
-  const appendAttachmentsToBody = (
-    originalBody: string,
-    files: UploadedAttachment[]
-  ) => {
-    if (files.length === 0) {
-      return originalBody;
-    }
-
-    const attachmentLinks = files
-      .map(
-        (file) =>
-          `<li><a href="${safeUrlAttr(file.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(file.name)}</a></li>`
-      )
-      .join("");
-
-    return `${originalBody}<hr><p><strong>Attachments</strong></p><ul>${attachmentLinks}</ul>`;
-  };
-
   const handleAttachmentFiles = async (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
@@ -730,11 +696,7 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
 
       for (const file of files) {
         const uploaded = await api.uploadAttachment(file);
-        uploadedFiles.push({
-          name: file.name,
-          url: uploaded.url,
-          size: file.size,
-        });
+        uploadedFiles.push(uploaded);
       }
 
       setAttachments((prev) => [...prev, ...uploadedFiles]);
@@ -1090,9 +1052,9 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
           {attachments.length > 0 && (
             <div className="attachment-list">
               {attachments.map((file, index) => (
-                <div key={`${file.url}-${index}`} className="attachment-item">
+                <div key={`${file.id}-${index}`} className="attachment-item">
                   <div className="attachment-meta">
-                    <span className="attachment-name">{file.name}</span>
+                      <span className="attachment-name">{file.original_filename}</span>
                     <span className="attachment-size">
                       {formatFileSize(file.size)}
                     </span>
@@ -1112,7 +1074,7 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
           )}
           <span className="help-text">
             {attachments.length > 0
-              ? `${attachments.length} attachment(s) will be included as links in this message.`
+              ? `${attachments.length} attachment(s) will be included with this message.`
               : "Attach documents, PDFs, images, spreadsheets, and other files."}
           </span>
         </div>
@@ -1242,7 +1204,7 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
           cc={cc}
           from={desk.name}
           subject={subject}
-          body={appendAttachmentsToBody(body, attachments)}
+          body={body}
           sequenceNumber={1}
           date={new Date()}
           contacts={contacts}

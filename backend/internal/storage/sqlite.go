@@ -593,6 +593,80 @@ func (s *SQLiteStorage) CreateConversationMiv(miv *models.ConversationMiv) error
 	return err
 }
 
+func (s *SQLiteStorage) CreateAttachment(attachment *models.Attachment) error {
+	if attachment.ID == "" {
+		attachment.ID = fmt.Sprintf("att-%d", time.Now().UnixNano())
+	}
+	if attachment.CreatedAt.IsZero() {
+		attachment.CreatedAt = time.Now()
+	}
+
+	_, err := s.db.Exec(`
+		INSERT INTO attachments (id, conversation_id, seq_no, uploaded_by, original_filename, stored_filename, content_type, size, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, attachment.ID, attachment.ConversationID, attachment.SeqNo, attachment.UploadedBy, attachment.OriginalFilename, attachment.StoredFilename, attachment.ContentType, attachment.Size, attachment.CreatedAt)
+	return err
+}
+
+func (s *SQLiteStorage) GetAttachment(id string) (*models.Attachment, error) {
+	attachment := &models.Attachment{}
+	err := s.db.QueryRow(`
+		SELECT id, conversation_id, seq_no, uploaded_by, original_filename, stored_filename, content_type, size, created_at
+		FROM attachments WHERE id = ?
+	`, id).Scan(&attachment.ID, &attachment.ConversationID, &attachment.SeqNo, &attachment.UploadedBy, &attachment.OriginalFilename, &attachment.StoredFilename, &attachment.ContentType, &attachment.Size, &attachment.CreatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("attachment not found")
+		}
+		return nil, err
+	}
+	return attachment, nil
+}
+
+func (s *SQLiteStorage) ListAttachmentsByConversation(conversationID string) ([]*models.Attachment, error) {
+	rows, err := s.db.Query(`
+		SELECT id, conversation_id, seq_no, uploaded_by, original_filename, stored_filename, content_type, size, created_at
+		FROM attachments WHERE conversation_id = ? ORDER BY created_at ASC
+	`, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var attachments []*models.Attachment
+	for rows.Next() {
+		attachment := &models.Attachment{}
+		if err := rows.Scan(&attachment.ID, &attachment.ConversationID, &attachment.SeqNo, &attachment.UploadedBy, &attachment.OriginalFilename, &attachment.StoredFilename, &attachment.ContentType, &attachment.Size, &attachment.CreatedAt); err != nil {
+			return nil, err
+		}
+		attachments = append(attachments, attachment)
+	}
+
+	return attachments, rows.Err()
+}
+
+func (s *SQLiteStorage) AssignAttachmentsToConversation(conversationID string, seqNo int, attachmentIDs []string) error {
+	if len(attachmentIDs) == 0 {
+		return nil
+	}
+
+	placeholders := make([]string, len(attachmentIDs))
+	args := make([]interface{}, 0, len(attachmentIDs)+2)
+	args = append(args, conversationID, seqNo)
+	for i, attachmentID := range attachmentIDs {
+		placeholders[i] = "?"
+		args = append(args, attachmentID)
+	}
+
+	query := fmt.Sprintf(`
+		UPDATE attachments
+		SET conversation_id = ?, seq_no = ?
+		WHERE id IN (%s)
+	`, strings.Join(placeholders, ","))
+	_, err := s.db.Exec(query, args...)
+	return err
+}
+
 func (s *SQLiteStorage) GetConversationMiv(mivID string) (*models.ConversationMiv, error) {
 	miv := &models.ConversationMiv{}
 	var readAt sql.NullTime
@@ -640,6 +714,16 @@ func (s *SQLiteStorage) GetConversationMiv(mivID string) (*models.ConversationMi
 	if viaJSON != "" && viaJSON != "null" {
 		if err := json.Unmarshal([]byte(viaJSON), &miv.Via); err != nil {
 			return nil, err
+		}
+	}
+
+	attachments, err := s.ListAttachmentsByConversation(miv.ConversationID)
+	if err != nil {
+		return nil, err
+	}
+	for _, attachment := range attachments {
+		if attachment.SeqNo == miv.SeqNo {
+			miv.Attachments = append(miv.Attachments, attachment)
 		}
 	}
 
@@ -697,6 +781,16 @@ func (s *SQLiteStorage) GetConversationMivs(conversationID string, deskID string
 		if viaJSON != "" && viaJSON != "null" {
 			if err := json.Unmarshal([]byte(viaJSON), &miv.Via); err != nil {
 				return nil, err
+			}
+		}
+
+		attachments, err := s.ListAttachmentsByConversation(miv.ConversationID)
+		if err != nil {
+			return nil, err
+		}
+		for _, attachment := range attachments {
+			if attachment.SeqNo == miv.SeqNo {
+				miv.Attachments = append(miv.Attachments, attachment)
 			}
 		}
 

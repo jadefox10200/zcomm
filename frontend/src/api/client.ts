@@ -735,7 +735,7 @@ export const uploadAttachment = async (
   const formData = new FormData();
   formData.append("upload", file);
 
-  const response = await fetch(`${API_BASE_URL}/upload`, {
+  const response = await fetch(`${API_BASE_URL}/attachments`, {
     method: "POST",
     headers: getUploadAuthHeaders(),
     body: formData,
@@ -750,6 +750,20 @@ export const uploadAttachment = async (
   }
 
   return response.json();
+};
+
+export const downloadAttachment = async (attachmentId: string): Promise<Blob> => {
+  const response = await fetch(`${API_BASE_URL}/attachments/${attachmentId}`, {
+    headers: getAuthHeaders(),
+  });
+  if (!response.ok) {
+    handleAuthError(response);
+    const errorData = await response
+      .json()
+      .catch(() => ({ error: "Failed to download attachment" }));
+    throw new Error(errorData.error || "Failed to download attachment");
+  }
+  return response.blob();
 };
 
 export const getContact = async (contactId: string): Promise<Contact> => {

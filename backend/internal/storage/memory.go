@@ -28,6 +28,8 @@ type MemoryStorage struct {
 	notificationsByDesk map[string][]*models.Notification    // deskID -> []Notification
 	contacts            map[string]*models.Contact           // contactID -> Contact
 	contactsByDesk      map[string][]*models.Contact         // deskID -> []Contact
+	attachments         map[string]*models.Attachment        // attachmentID -> Attachment
+	attachmentsByConv   map[string][]*models.Attachment      // conversationID -> []Attachment
 
 	accountCounter         int
 	conversationCounter    int
@@ -52,6 +54,8 @@ func NewMemoryStorage() *MemoryStorage {
 		notificationsByDesk: make(map[string][]*models.Notification),
 		contacts:            make(map[string]*models.Contact),
 		contactsByDesk:      make(map[string][]*models.Contact),
+		attachments:         make(map[string]*models.Attachment),
+		attachmentsByConv:   make(map[string][]*models.Attachment),
 	}
 }
 
@@ -618,6 +622,77 @@ func (s *MemoryStorage) GetConversationMiv(mivID string) (*models.ConversationMi
 	}
 
 	return nil, fmt.Errorf("miv not found: %s", mivID)
+}
+
+// Attachment methods
+
+func (s *MemoryStorage) CreateAttachment(attachment *models.Attachment) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if attachment.ID == "" {
+		s.conversationMivCounter++
+		attachment.ID = fmt.Sprintf("att-%d", s.conversationMivCounter)
+	}
+	if attachment.CreatedAt.IsZero() {
+		attachment.CreatedAt = time.Now()
+	}
+
+	s.attachments[attachment.ID] = attachment
+	if attachment.ConversationID != "" {
+		s.attachmentsByConv[attachment.ConversationID] = append(s.attachmentsByConv[attachment.ConversationID], attachment)
+	}
+	return nil
+}
+
+func (s *MemoryStorage) GetAttachment(id string) (*models.Attachment, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	attachment, exists := s.attachments[id]
+	if !exists {
+		return nil, fmt.Errorf("attachment not found: %s", id)
+	}
+	return attachment, nil
+}
+
+func (s *MemoryStorage) ListAttachmentsByConversation(conversationID string) ([]*models.Attachment, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	attachments := s.attachmentsByConv[conversationID]
+	result := make([]*models.Attachment, len(attachments))
+	copy(result, attachments)
+	return result, nil
+}
+
+func (s *MemoryStorage) AssignAttachmentsToConversation(conversationID string, seqNo int, attachmentIDs []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, attachmentID := range attachmentIDs {
+		attachment, exists := s.attachments[attachmentID]
+		if !exists {
+			return fmt.Errorf("attachment not found: %s", attachmentID)
+		}
+		if attachment.ConversationID != "" && attachment.ConversationID != conversationID {
+			return fmt.Errorf("attachment already assigned to a different conversation")
+		}
+		attachment.ConversationID = conversationID
+		attachment.SeqNo = seqNo
+		found := false
+		for _, existing := range s.attachmentsByConv[conversationID] {
+			if existing.ID == attachmentID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			s.attachmentsByConv[conversationID] = append(s.attachmentsByConv[conversationID], attachment)
+		}
+	}
+
+	return nil
 }
 
 // Notification methods

@@ -6,9 +6,10 @@ services:
     restart: always
     volumes:
       - ./backend/data:/app/data
-      - ./backend/uploads:/app/uploads
+      - ./backend/attachments:/app/attachments
     environment:
       - API_ENV=production
+      - ATTACHMENT_DIR=/app/attachments
     ports:
       - "8080:8080"
 

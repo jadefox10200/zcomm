@@ -1,6 +1,6 @@
 module github.com/jadefox10200/missiv/backend
 
-go 1.24.9
+go 1.24
 
 require (
 	github.com/gin-gonic/gin v1.11.0

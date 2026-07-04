@@ -54,6 +54,20 @@ type ConversationMiv struct {
 	ViaRejectedBy  string     `json:"via_rejected_by,omitempty"` // Who rejected the via routing
 	ViaRejection   string     `json:"via_rejection,omitempty"`   // Reason for via rejection
 	RejectedMivID  string     `json:"rejected_miv_id,omitempty"` // ID of the original MIV if this is a rejection notice
+	Attachments    []*Attachment `json:"attachments,omitempty"`
+}
+
+// Attachment represents a file attached to a conversation message.
+type Attachment struct {
+	ID               string    `json:"id"`
+	ConversationID   string    `json:"conversation_id,omitempty"`
+	SeqNo            int       `json:"seq_no"`
+	UploadedBy       string    `json:"uploaded_by"`
+	OriginalFilename string    `json:"original_filename"`
+	StoredFilename   string    `json:"stored_filename"`
+	ContentType      string    `json:"content_type"`
+	Size             int64     `json:"size"`
+	CreatedAt        time.Time `json:"created_at"`
 }
 
 // CreateConversationRequest represents a request to create a new conversation
@@ -65,6 +79,7 @@ type CreateConversationRequest struct {
 	SenderBody    string              `json:"sender_body" binding:"required"`    // Encrypted body for sender (encrypted with sender's keys)
 	RecipientBody string              `json:"recipient_body" binding:"required"` // Encrypted body for recipient (encrypted with recipient's public key)
 	CcBodies      map[string]string   `json:"cc_bodies,omitempty"`               // Map of deskID -> encrypted body for each CC recipient
+	AttachmentIDs []string            `json:"attachment_ids,omitempty"`         // Uploaded attachment IDs to bind to this message
 	IsEncrypted   bool                `json:"is_encrypted"`                  // Whether the body is end-to-end encrypted
 	FontFamily    *string             `json:"font_family,omitempty"`         // Font family for message display
 	FontSize      *string             `json:"font_size,omitempty"`           // Font size for message display
@@ -76,6 +91,7 @@ type ReplyToConversationRequest struct {
 	SenderBody    string            `json:"sender_body" binding:"required"`    // Encrypted body for sender
 	RecipientBody string            `json:"recipient_body" binding:"required"` // Encrypted body for recipient
 	CcBodies      map[string]string `json:"cc_bodies,omitempty"`               // Map of deskID -> encrypted body for each CC recipient
+	AttachmentIDs []string          `json:"attachment_ids,omitempty"`         // Uploaded attachment IDs to bind to this reply
 	IsAck         bool              `json:"is_ack"`                            // Whether this is an ACK message to end the conversation
 	IsEncrypted   bool              `json:"is_encrypted"`                      // Whether the body is end-to-end encrypted
 	Cc            []string          `json:"cc,omitempty"`                      // CC recipients (only for first reply in conversation)

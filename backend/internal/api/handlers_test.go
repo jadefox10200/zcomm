@@ -8,13 +8,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/textproto"
-	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jadefox10200/missiv/backend/internal/crypto"
+	"github.com/jadefox10200/missiv/backend/internal/models"
+	"github.com/jadefox10200/missiv/backend/internal/storage"
 )
 
 // testPNGData represents a valid 1x1 PNG image
@@ -30,8 +31,8 @@ var testPNGData = []byte{
 	0x44, 0xAE, 0x42, 0x60, 0x82,
 }
 
-// createUploadRequest creates a multipart form request with the given image data
-func createUploadRequest(imageData []byte, filename string) (*http.Request, error) {
+// createAttachmentRequest creates an authenticated multipart form request with the given image data.
+func createAttachmentRequest(imageData []byte, filename string, token string) (*http.Request, error) {
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 	
@@ -54,27 +55,69 @@ func createUploadRequest(imageData []byte, filename string) (*http.Request, erro
 		return nil, err
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/upload", body)
+	req := httptest.NewRequest(http.MethodPost, "/api/attachments", body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+token)
 	req.Host = "localhost:8080"
 	
 	return req, nil
 }
 
-func TestUploadFile_ReturnsFullURL(t *testing.T) {
-	// Set Gin to test mode
-	gin.SetMode(gin.TestMode)
+func newAuthenticatedTestServer(t *testing.T) (*Server, string, string, string) {
+	t.Helper()
 
-	// Create a test server
-	server := NewServer()
+	gin.SetMode(gin.TestMode)
+	tokenStore = make(map[string]string)
+
+	store := storage.NewMemoryStorage()
+	account := &models.Account{
+		Username:     "tester",
+		PasswordHash: "hash",
+		DisplayName:  "Tester",
+		Role:         models.AccountRoleUser,
+		Status:       models.AccountStatusActive,
+		Desks:        []string{},
+		ActiveDesk:   "",
+	}
+	if err := store.CreateAccount(account); err != nil {
+		t.Fatalf("failed to create account: %v", err)
+	}
+
+	var privateKey [32]byte
+	privateKey[0] = 1
+	desk := &models.Desk{
+		ID:        "5551234567",
+		AccountID: account.ID,
+		Name:      "Primary Desk",
+		PublicKey: crypto.PublicKeyToBase64([32]byte{}),
+	}
+	if err := store.CreateDesk(desk, privateKey); err != nil {
+		t.Fatalf("failed to create desk: %v", err)
+	}
+	account.ActiveDesk = desk.ID
+	account.Desks = []string{desk.ID}
+	if err := store.UpdateAccount(account); err != nil {
+		t.Fatalf("failed to update account: %v", err)
+	}
+
+	token := "test-token"
+	tokenStore[token] = account.ID
+
+	server := NewServerWithStorage(store)
+	return server, token, account.ID, desk.ID
+}
+
+func TestUploadAttachment_ReturnsAttachmentMetadata(t *testing.T) {
+	// Set Gin to test mode
+	server, token, _, deskID := newAuthenticatedTestServer(t)
 
 	// Create a temporary directory for uploads
 	tmpDir := t.TempDir()
-	os.Setenv("UPLOAD_DIR", tmpDir)
-	defer os.Unsetenv("UPLOAD_DIR")
+	os.Setenv("ATTACHMENT_DIR", tmpDir)
+	defer os.Unsetenv("ATTACHMENT_DIR")
 
 	// Create request
-	req, err := createUploadRequest(testPNGData, "test.png")
+	req, err := createAttachmentRequest(testPNGData, "test.png", token)
 	if err != nil {
 		t.Fatalf("Failed to create upload request: %v", err)
 	}
@@ -99,79 +142,60 @@ func TestUploadFile_ReturnsFullURL(t *testing.T) {
 		t.Fatalf("Failed to parse response: %v", err)
 	}
 
-	// Check that URL is present
-	urlStr, ok := response["url"].(string)
-	if !ok {
-		t.Fatalf("Expected 'url' field in response, got: %v", response)
+	// Check that attachment metadata is present
+	attachmentID, ok := response["id"].(string)
+	if !ok || attachmentID == "" {
+		t.Fatalf("Expected 'id' field in response, got: %v", response)
 	}
-
-	// Verify URL format includes full server URL
-	if !strings.HasPrefix(urlStr, "http://localhost:8080/uploads/") {
-		t.Errorf("Expected URL to start with 'http://localhost:8080/uploads/', got: %s", urlStr)
+	if response["uploaded_by"] != deskID {
+		t.Fatalf("Expected uploaded_by to match active desk, got: %v", response["uploaded_by"])
+	}
+	if response["original_filename"] != "test.png" {
+		t.Fatalf("Expected original filename to be preserved, got: %v", response["original_filename"])
 	}
 
 	// Verify the file was actually saved
-	parsedURL, err := url.Parse(urlStr)
-	if err != nil {
-		t.Fatalf("Failed to parse URL: %v", err)
-	}
-	filename := filepath.Base(parsedURL.Path)
-	savedPath := filepath.Join(tmpDir, filename)
+	savedPath := filepath.Join(tmpDir, response["stored_filename"].(string))
 	if _, err := os.Stat(savedPath); os.IsNotExist(err) {
 		t.Errorf("Expected file to be saved at %s, but it doesn't exist", savedPath)
 	}
 }
 
-func TestUploadFile_WithServerURLEnv(t *testing.T) {
-	// Set Gin to test mode
-	gin.SetMode(gin.TestMode)
 
-	// Create a test server
-	server := NewServer()
-
-	// Create a temporary directory for uploads
+func TestDownloadAttachment_ReturnsFileContents(t *testing.T) {
+	server, token, _, _ := newAuthenticatedTestServer(t)
 	tmpDir := t.TempDir()
-	os.Setenv("UPLOAD_DIR", tmpDir)
-	defer os.Unsetenv("UPLOAD_DIR")
+	os.Setenv("ATTACHMENT_DIR", tmpDir)
+	defer os.Unsetenv("ATTACHMENT_DIR")
 
-	// Set custom SERVER_URL environment variable
-	os.Setenv("SERVER_URL", "https://example.com")
-	defer os.Unsetenv("SERVER_URL")
-
-	// Create request
-	req, err := createUploadRequest(testPNGData, "test.png")
+	uploadReq, err := createAttachmentRequest(testPNGData, "test.png", token)
 	if err != nil {
 		t.Fatalf("Failed to create upload request: %v", err)
 	}
 
-	// Create response recorder
-	w := httptest.NewRecorder()
-
-	// Perform request
-	server.router.ServeHTTP(w, req)
-
-	// Check response code
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status code %d, got %d", http.StatusOK, w.Code)
-		t.Logf("Response body: %s", w.Body.String())
-		return
+	uploadRec := httptest.NewRecorder()
+	server.router.ServeHTTP(uploadRec, uploadReq)
+	if uploadRec.Code != http.StatusOK {
+		t.Fatalf("Expected upload to succeed, got %d: %s", uploadRec.Code, uploadRec.Body.String())
 	}
 
-	// Parse response
-	var response map[string]interface{}
-	err = json.Unmarshal(w.Body.Bytes(), &response)
-	if err != nil {
-		t.Fatalf("Failed to parse response: %v", err)
+	var uploadResponse map[string]interface{}
+	if err := json.Unmarshal(uploadRec.Body.Bytes(), &uploadResponse); err != nil {
+		t.Fatalf("Failed to parse upload response: %v", err)
+	}
+	attachmentID := uploadResponse["id"].(string)
+
+	downloadReq := httptest.NewRequest(http.MethodGet, "/api/attachments/"+attachmentID, nil)
+	downloadReq.Header.Set("Authorization", "Bearer "+token)
+	downloadReq.Host = "localhost:8080"
+	downloadRec := httptest.NewRecorder()
+	server.router.ServeHTTP(downloadRec, downloadReq)
+
+	if downloadRec.Code != http.StatusOK {
+		t.Fatalf("Expected download to succeed, got %d: %s", downloadRec.Code, downloadRec.Body.String())
 	}
 
-	// Check that URL is present
-	urlStr, ok := response["url"].(string)
-	if !ok {
-		t.Fatalf("Expected 'url' field in response, got: %v", response)
-	}
-
-	// Verify URL uses the SERVER_URL environment variable
-	if !strings.HasPrefix(urlStr, "https://example.com/uploads/") {
-		t.Errorf("Expected URL to start with 'https://example.com/uploads/', got: %s", urlStr)
+	if !bytes.Equal(downloadRec.Body.Bytes(), testPNGData) {
+		t.Fatalf("Downloaded attachment bytes did not match uploaded bytes")
 	}
 }

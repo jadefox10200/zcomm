@@ -180,6 +180,25 @@ function ConversationThread({
     return formattedId;
   };
 
+  const handleAttachmentDownload = async (
+    attachment: NonNullable<ConversationMiv["attachments"]>[number]
+  ) => {
+    try {
+      const blob = await api.downloadAttachment(attachment.id);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = attachment.original_filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Failed to download attachment:", err);
+      alert("Failed to download attachment. Please try again.");
+    }
+  };
+
   if (!conversation) {
     return (
       <div className="conversation-thread empty">
@@ -307,6 +326,30 @@ function ConversationThread({
                     dangerouslySetInnerHTML={{ __html: atob(miv.body) }}
                   />
                 </div>
+                {miv.attachments && miv.attachments.length > 0 && (
+                  <div className="message-attachments">
+                    <div className="message-attachments-title">Attachments</div>
+                    <ul className="message-attachments-list">
+                      {miv.attachments.map((attachment) => (
+                        <li key={attachment.id} className="message-attachment-item">
+                          <button
+                            type="button"
+                            className="message-attachment-link"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleAttachmentDownload(attachment);
+                            }}
+                          >
+                            {attachment.original_filename}
+                          </button>
+                          <span className="message-attachment-size">
+                            {Math.max(1, Math.round(attachment.size / 1024))} KB
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
 
               {miv.read_at && (
