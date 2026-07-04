@@ -5,6 +5,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./backend/data:/app/data
+      - ./backend/uploads:/app/uploads
     environment:
       - API_ENV=production
 

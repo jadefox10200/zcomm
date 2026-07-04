@@ -280,6 +280,14 @@ export interface UpdateContactRequest {
   notes?: string;
 }
 
+export interface UploadFileResponse {
+  url: string;
+  filename?: string;
+  original_filename?: string;
+  size?: number;
+  content_type?: string;
+}
+
 export interface ListContactsResponse {
   contacts: Contact[];
   total: number;

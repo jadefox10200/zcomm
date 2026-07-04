@@ -6,6 +6,7 @@ services:
     restart: always
     volumes:
       - ./backend/data:/app/data
+      - ./backend/uploads:/app/uploads
     environment:
       - API_ENV=production
     ports:

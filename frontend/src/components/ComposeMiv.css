@@ -161,6 +161,52 @@
   margin-bottom: 8px;
 }
 
+.attachments-header {
+  display: flex;
+  justify-content: left;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.attachment-input-hidden {
+  display: none;
+}
+
+.attachment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.attachment-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 8px 10px;
+  background: #fafafa;
+}
+
+.attachment-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.attachment-name {
+  font-size: 13px;
+  color: #222;
+  word-break: break-all;
+}
+
+.attachment-size {
+  font-size: 11px;
+  color: #666;
+}
+
 .add-cc-btn,
 .remove-cc-btn {
   padding: 6px 10px;

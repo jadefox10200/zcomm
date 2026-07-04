@@ -8,12 +8,20 @@ import { buildMessageWithTemplate } from "../utils/messageTemplate";
 import MivPreview from "./MivPreview";
 import "./ComposeMiv.css";
 
+const CKEditorAny = CKEditor as any;
+
 interface ComposeMivProps {
   onSend: (request: CreateMivRequest) => Promise<void>;
   onCancel: () => void;
   deskId: string;
   desk: Desk;
   resubmitMiv?: ConversationMiv | null;
+}
+
+interface UploadedAttachment {
+  name: string;
+  url: string;
+  size: number;
 }
 
 const ComposeMiv: React.FC<ComposeMivProps> = ({
@@ -52,6 +60,8 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
   >("to");
   const [contactModalSearch, setContactModalSearch] = useState("");
   const [showAddContactForm, setShowAddContactForm] = useState(false);
+  const [attachments, setAttachments] = useState<UploadedAttachment[]>([]);
+  const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
   const [newContactForm, setNewContactForm] = useState({
     name: "",
     desk_id_ref: "",
@@ -61,6 +71,7 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
     notes: "",
   });
   const errorRef = useRef<HTMLDivElement>(null);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
 
   // Scroll to error message when error occurs
   useEffect(() => {
@@ -131,6 +142,7 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
       setViaSearchTerms(resubmitMiv.via || []);
       setCcSearchTerms(resubmitMiv.cc || []);
       setTemplateInitialized(true);
+      setAttachments([]);
     } else {
       // Clear all fields when resubmitMiv is null (new conversation)
       setTo("");
@@ -142,6 +154,7 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
       setViaSearchTerms([]);
       setCcSearchTerms([]);
       setTemplateInitialized(false);
+      setAttachments([]);
     }
   }, [resubmitMiv]);
 
@@ -374,11 +387,11 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
     // Reset field errors
     setFieldErrors({});
 
-    if (!to || !subject || !body) {
+    if (!to || !subject || (!body && attachments.length === 0)) {
       const newFieldErrors: any = {};
       if (!to) newFieldErrors.to = true;
       if (!subject) newFieldErrors.subject = true;
-      if (!body) newFieldErrors.body = true;
+      if (!body && attachments.length === 0) newFieldErrors.body = true;
       setFieldErrors(newFieldErrors);
       setError("All fields are required");
       return;
@@ -453,6 +466,8 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
     setError(null);
 
     try {
+      const finalBody = appendAttachmentsToBody(body, attachments);
+
       // Get sender's private key for encryption
       const { getPrivateKey, encryptMessage } = await import("../utils/crypto");
       const senderPrivateKey = getPrivateKey(deskId);
@@ -474,7 +489,7 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
       // Encrypt TWO copies:
       // 1. Sender's copy: encrypted with sender's keys (sender can decrypt)
       const senderEncryptedBody = encryptMessage(
-        body,
+        finalBody,
         senderPublicKey,
         senderPrivateKey
       );
@@ -485,7 +500,7 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
 
       // 2. Recipient's copy: encrypted with recipient's public key + sender's private key
       const recipientEncryptedBody = encryptMessage(
-        body,
+        finalBody,
         recipientPublicKey,
         senderPrivateKey
       );
@@ -497,7 +512,7 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
             const ccPublicKeyResponse = await api.getDeskPublicKey(ccDeskId);
             const ccPublicKey = ccPublicKeyResponse.public_key;
             const ccEncryptedBody = encryptMessage(
-              body,
+              finalBody,
               ccPublicKey,
               senderPrivateKey
             );
@@ -529,6 +544,7 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
       setCcSearchTerms([]);
       setViaSearchTerms([]);
       setShowCcDropdowns([]);
+      setAttachments([]);
     } catch (err) {
       console.error("Failed to send miv:", err);
 
@@ -656,6 +672,89 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
       return formatPhoneId(via[index]);
     }
     return "";
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) {
+      return `${bytes} B`;
+    }
+    if (bytes < 1024 * 1024) {
+      return `${(bytes / 1024).toFixed(1)} KB`;
+    }
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  };
+
+  const escapeHtml = (value: string) =>
+    value
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+
+  const safeUrlAttr = (url: string) =>
+    url.replace(/"/g, "%22").replace(/'/g, "%27");
+
+  const appendAttachmentsToBody = (
+    originalBody: string,
+    files: UploadedAttachment[]
+  ) => {
+    if (files.length === 0) {
+      return originalBody;
+    }
+
+    const attachmentLinks = files
+      .map(
+        (file) =>
+          `<li><a href="${safeUrlAttr(file.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(file.name)}</a></li>`
+      )
+      .join("");
+
+    return `${originalBody}<hr><p><strong>Attachments</strong></p><ul>${attachmentLinks}</ul>`;
+  };
+
+  const handleAttachmentFiles = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const fileList = event.target.files;
+    if (!fileList || fileList.length === 0) {
+      return;
+    }
+
+    setError(null);
+    setIsUploadingAttachments(true);
+
+    try {
+      const files = Array.from(fileList);
+      const uploadedFiles: UploadedAttachment[] = [];
+
+      for (const file of files) {
+        const uploaded = await api.uploadAttachment(file);
+        uploadedFiles.push({
+          name: file.name,
+          url: uploaded.url,
+          size: file.size,
+        });
+      }
+
+      setAttachments((prev) => [...prev, ...uploadedFiles]);
+    } catch (err) {
+      console.error("Failed to upload attachment:", err);
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to upload one or more attachments."
+      );
+    } finally {
+      setIsUploadingAttachments(false);
+      if (attachmentInputRef.current) {
+        attachmentInputRef.current.value = "";
+      }
+    }
+  };
+
+  const removeAttachment = (index: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
   };
 
   return (
@@ -969,6 +1068,56 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
         </div>
 
         <div className="form-group">
+          <div className="attachments-header">
+            <label>Attachments: (Optional)</label>
+            <button
+              type="button"
+              className="add-cc-btn"
+              onClick={() => attachmentInputRef.current?.click()}
+              disabled={isSending || isUploadingAttachments}
+            >
+              {isUploadingAttachments ? "Uploading..." : "+ Attach Files"}
+            </button>
+          </div>
+          <input
+            ref={attachmentInputRef}
+            type="file"
+            multiple
+            onChange={handleAttachmentFiles}
+            className="attachment-input-hidden"
+            disabled={isSending || isUploadingAttachments}
+          />
+          {attachments.length > 0 && (
+            <div className="attachment-list">
+              {attachments.map((file, index) => (
+                <div key={`${file.url}-${index}`} className="attachment-item">
+                  <div className="attachment-meta">
+                    <span className="attachment-name">{file.name}</span>
+                    <span className="attachment-size">
+                      {formatFileSize(file.size)}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="remove-cc-btn"
+                    onClick={() => removeAttachment(index)}
+                    disabled={isSending || isUploadingAttachments}
+                    title="Remove attachment"
+                  >
+                    <i className="minus icon"></i>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <span className="help-text">
+            {attachments.length > 0
+              ? `${attachments.length} attachment(s) will be included as links in this message.`
+              : "Attach documents, PDFs, images, spreadsheets, and other files."}
+          </span>
+        </div>
+
+        <div className="form-group">
           <label htmlFor="body">Message:</label>
           <div
             className="editor-container"
@@ -978,7 +1127,7 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
               } as React.CSSProperties
             }
           >
-            <CKEditor
+            <CKEditorAny
               key={resubmitMiv ? `resubmit-${resubmitMiv.id}` : "new"}
               editor={ClassicEditor as any}
               config={
@@ -1001,9 +1150,7 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
                       "superscript",
                       "|",
                       "link",
-                      "insertTable",
-                      "imageUpload",
-                      "mediaEmbed",
+                      "insertTable",                                            
                       "|",
                       "bulletedList",
                       "numberedList",
@@ -1053,7 +1200,7 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
               }
               data={body}
               disabled={isSending}
-              onChange={(event, editor) => {
+              onChange={(_event: any, editor: any) => {
                 const data = editor.getData();
                 setBody(data);
               }}
@@ -1074,14 +1221,14 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
             type="button"
             onClick={() => setShowPreview(true)}
             className="btn btn-preview"
-            disabled={isSending || !body}
+            disabled={isSending || (!body && attachments.length === 0)}
           >
             👁️ Preview
           </button>
           <button
             type="submit"
             className="btn btn-primary"
-            disabled={isSending}
+            disabled={isSending || isUploadingAttachments}
           >
             {isSending ? "Sending..." : "Send Despatch"}
           </button>
@@ -1095,7 +1242,7 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
           cc={cc}
           from={desk.name}
           subject={subject}
-          body={body}
+          body={appendAttachmentsToBody(body, attachments)}
           sequenceNumber={1}
           date={new Date()}
           contacts={contacts}

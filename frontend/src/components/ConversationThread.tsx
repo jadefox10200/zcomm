@@ -14,6 +14,8 @@ import { buildMessageWithTemplate } from "../utils/messageTemplate";
 import MivPreview from "./MivPreview";
 import "./ConversationThread.css";
 
+const CKEditorAny = CKEditor as any;
+
 interface ConversationThreadProps {
   conversation: GetConversationResponse;
   currentDeskId: string;
@@ -377,7 +379,7 @@ function ConversationThread({
             ) : showReplyForm ? (
               <form onSubmit={handleReply} className="reply-form">
                 <div className="editor-container">
-                  <CKEditor
+                  <CKEditorAny
                     editor={ClassicEditor as any}
                     config={
                       {
@@ -450,7 +452,7 @@ function ConversationThread({
                       } as any
                     }
                     data={replyBody}
-                    onChange={(event, editor) => {
+                    onChange={(_event: any, editor: any) => {
                       const data = editor.getData();
                       setReplyBody(data);
                     }}

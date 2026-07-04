@@ -24,6 +24,7 @@ import {
   CreateContactRequest,
   UpdateContactRequest,
   ListContactsResponse,
+  UploadFileResponse,
 } from "../types";
 import { Capacitor } from "@capacitor/core";
 
@@ -77,6 +78,15 @@ const getAuthHeaders = (): HeadersInit => {
   const headers: HeadersInit = {
     "Content-Type": "application/json",
   };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  return headers;
+};
+
+const getUploadAuthHeaders = (): HeadersInit => {
+  const token = localStorage.getItem("token");
+  const headers: HeadersInit = {};
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
   }
@@ -716,6 +726,29 @@ export const createContact = async (
     const error = await response.json();
     throw new Error(error.error || "Failed to create contact");
   }
+  return response.json();
+};
+
+export const uploadAttachment = async (
+  file: File
+): Promise<UploadFileResponse> => {
+  const formData = new FormData();
+  formData.append("upload", file);
+
+  const response = await fetch(`${API_BASE_URL}/upload`, {
+    method: "POST",
+    headers: getUploadAuthHeaders(),
+    body: formData,
+  });
+
+  if (!response.ok) {
+    handleAuthError(response);
+    const errorData = await response
+      .json()
+      .catch(() => ({ error: "Failed to upload attachment" }));
+    throw new Error(errorData.error || "Failed to upload attachment");
+  }
+
   return response.json();
 };
 

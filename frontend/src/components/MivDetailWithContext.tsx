@@ -13,6 +13,8 @@ import { parseClosureAndSignature } from "../utils/messageTemplate";
 import MivPreview from "./MivPreview";
 import "./MivDetailWithContext.css";
 
+const CKEditorAny = CKEditor as any;
+
 interface MivDetailWithContextProps {
   miv: ConversationMiv;
   currentDeskId: string;
@@ -1104,7 +1106,7 @@ function MivDetailWithContext({
             <form onSubmit={handleReplySubmit} className="reply-form">
               <h3>Reply</h3>
               <div className="editor-container">
-                <CKEditor
+                <CKEditorAny
                   editor={ClassicEditor as any}
                   config={
                     {
@@ -1126,9 +1128,7 @@ function MivDetailWithContext({
                           "superscript",
                           "|",
                           "link",
-                          "insertTable",
-                          "imageUpload",
-                          "mediaEmbed",
+                          "insertTable",                                                    
                           "|",
                           "bulletedList",
                           "numberedList",
@@ -1177,7 +1177,7 @@ function MivDetailWithContext({
                     } as any
                   }
                   data={replyBody}
-                  onChange={(event, editor) => {
+                  onChange={(_event: any, editor: any) => {
                     const data = editor.getData();
                     setReplyBody(data);
                   }}

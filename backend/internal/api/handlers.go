@@ -93,6 +93,41 @@ const (
 	maxFilenameLength = 100              // Maximum length for sanitized filename
 )
 
+var blockedUploadExtensions = map[string]bool{
+	".bat":   true,
+	".cmd":   true,
+	".com":   true,
+	".dll":   true,
+	".exe":   true,
+	".hta":   true,
+	".htm":   true,
+	".html":  true,
+	".jar":   true,
+	".js":    true,
+	".mjs":   true,
+	".msi":   true,
+	".php":   true,
+	".ps1":   true,
+	".reg":   true,
+	".scr":   true,
+	".sh":    true,
+	".svg":   true,
+	".vbs":   true,
+	".xhtml": true,
+	".xml":   true,
+}
+
+var blockedUploadContentTypes = map[string]bool{
+	"application/ecmascript":   true,
+	"application/javascript":   true,
+	"application/x-msdownload": true,
+	"application/xml":          true,
+	"image/svg+xml":            true,
+	"text/html":                true,
+	"text/javascript":          true,
+	"text/xml":                 true,
+}
+
 // Compiled regex for filename sanitization (compiled once at package level)
 var safeFilenameRegex = regexp.MustCompile(`[^a-zA-Z0-9._-]`)
 
@@ -1931,9 +1966,29 @@ func (s *Server) uploadFile(c *gin.Context) {
 		return
 	}
 
-	// Validate file type (only images)
-	contentType := file.Header.Get("Content-Type")
-	allowedTypes := map[string]string{
+	declaredContentType := strings.ToLower(strings.TrimSpace(file.Header.Get("Content-Type")))
+	if idx := strings.Index(declaredContentType, ";"); idx != -1 {
+		declaredContentType = strings.TrimSpace(declaredContentType[:idx])
+	}
+
+	// Sanitize and validate filename before using its extension
+	sanitizedFilename := sanitizeFilename(file.Filename)
+	ext := strings.ToLower(filepath.Ext(sanitizedFilename))
+	if ext == "" {
+		ext = ".bin"
+	}
+	if len(ext) > maxFileExtLength {
+		log.Printf("Upload error: Suspicious extension length - %s", ext)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid filename extension"})
+		return
+	}
+	if blockedUploadExtensions[ext] {
+		log.Printf("Upload error: Disallowed file extension - %s", ext)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "This file type is not allowed"})
+		return
+	}
+
+	imageContentTypes := map[string]string{
 		"image/jpeg": ".jpg",
 		"image/jpg":  ".jpg",
 		"image/png":  ".png",
@@ -1941,17 +1996,7 @@ func (s *Server) uploadFile(c *gin.Context) {
 		"image/webp": ".webp",
 	}
 
-	expectedExt, validContentType := allowedTypes[contentType]
-	if !validContentType {
-		log.Printf("Upload error: Invalid content type - %s", contentType)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file type. Only images are allowed"})
-		return
-	}
-
-	// Additional security: Validate file signature (magic bytes)
-	// Note: This validates the file header but does not protect against polyglot files
-	// (files with valid image headers but malicious payloads). For higher security,
-	// consider re-encoding images or using a dedicated image validation library.
+	// Additional security: Validate file signature (magic bytes) for image uploads.
 	// Open the file to read the first few bytes
 	fileContent, err := file.Open()
 	if err != nil {
@@ -1961,64 +2006,70 @@ func (s *Server) uploadFile(c *gin.Context) {
 	}
 	defer fileContent.Close()
 
-	// Read the first 512 bytes for magic number validation
+	// Read the first 512 bytes for type detection and image signature checks.
 	buffer := make([]byte, 512)
-	_, err = fileContent.Read(buffer)
-	if err != nil {
+	n, err := fileContent.Read(buffer)
+	if err != nil && err != io.EOF {
 		log.Printf("Upload error: Failed to read file header - %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read file header"})
 		return
 	}
+	detectedContentType := strings.ToLower(http.DetectContentType(buffer[:n]))
 
-	// Validate magic bytes for common image formats
-	isValidImage := false
-	detectedExt := ""
-
-	// JPEG: FF D8 FF
-	if len(buffer) >= 3 && buffer[0] == 0xFF && buffer[1] == 0xD8 && buffer[2] == 0xFF {
-		isValidImage = true
-		detectedExt = ".jpg"
-	}
-	// PNG: 89 50 4E 47
-	if len(buffer) >= 4 && buffer[0] == 0x89 && buffer[1] == 0x50 && buffer[2] == 0x4E && buffer[3] == 0x47 {
-		isValidImage = true
-		detectedExt = ".png"
-	}
-	// GIF: 47 49 46
-	if len(buffer) >= 3 && buffer[0] == 0x47 && buffer[1] == 0x49 && buffer[2] == 0x46 {
-		isValidImage = true
-		detectedExt = ".gif"
-	}
-	// WebP: 52 49 46 46 (RIFF) with "WEBP" at offset 8
-	if len(buffer) >= 12 && buffer[0] == 0x52 && buffer[1] == 0x49 && buffer[2] == 0x46 && buffer[3] == 0x46 &&
-		buffer[8] == 0x57 && buffer[9] == 0x45 && buffer[10] == 0x42 && buffer[11] == 0x50 {
-		isValidImage = true
-		detectedExt = ".webp"
-	}
-
-	if !isValidImage {
-		log.Printf("Upload error: File magic bytes do not match any supported image format")
-		c.JSON(http.StatusBadRequest, gin.H{"error": "File is not a valid image"})
+	if blockedUploadContentTypes[declaredContentType] || blockedUploadContentTypes[detectedContentType] {
+		log.Printf("Upload error: Disallowed content type - declared: %s, detected: %s", declaredContentType, detectedContentType)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "This file type is not allowed"})
 		return
 	}
 
-	// Validate that the detected file type matches the declared content type
-	if detectedExt != expectedExt {
-		log.Printf("Upload error: Content-Type mismatch - declared: %s (%s), detected: %s",
-			contentType, expectedExt, detectedExt)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "File type mismatch. The file content does not match the declared type"})
-		return
+	isImageUpload := strings.HasPrefix(declaredContentType, "image/") || strings.HasPrefix(detectedContentType, "image/")
+	if declaredContentType == "" {
+		declaredContentType = detectedContentType
 	}
 
-	// Sanitize the original filename to prevent path traversal attacks
-	// Use a whitelist approach: only allow alphanumeric, dash, underscore, and dot
-	sanitizedFilename := sanitizeFilename(file.Filename)
+	if isImageUpload {
+		isValidImage := false
+		detectedExt := ""
 
-	// Extract and validate the file extension
-	ext := filepath.Ext(sanitizedFilename)
-	if ext == "" || len(ext) > maxFileExtLength {
-		// If no extension or suspicious extension, use the detected one
-		ext = detectedExt
+		// JPEG: FF D8 FF
+		if n >= 3 && buffer[0] == 0xFF && buffer[1] == 0xD8 && buffer[2] == 0xFF {
+			isValidImage = true
+			detectedExt = ".jpg"
+		}
+		// PNG: 89 50 4E 47
+		if n >= 4 && buffer[0] == 0x89 && buffer[1] == 0x50 && buffer[2] == 0x4E && buffer[3] == 0x47 {
+			isValidImage = true
+			detectedExt = ".png"
+		}
+		// GIF: 47 49 46
+		if n >= 3 && buffer[0] == 0x47 && buffer[1] == 0x49 && buffer[2] == 0x46 {
+			isValidImage = true
+			detectedExt = ".gif"
+		}
+		// WebP: RIFF....WEBP
+		if n >= 12 && buffer[0] == 0x52 && buffer[1] == 0x49 && buffer[2] == 0x46 && buffer[3] == 0x46 &&
+			buffer[8] == 0x57 && buffer[9] == 0x45 && buffer[10] == 0x42 && buffer[11] == 0x50 {
+			isValidImage = true
+			detectedExt = ".webp"
+		}
+
+		if !isValidImage {
+			log.Printf("Upload error: File magic bytes do not match supported image formats")
+			c.JSON(http.StatusBadRequest, gin.H{"error": "File is not a valid image"})
+			return
+		}
+
+		expectedExt, validImageContentType := imageContentTypes[declaredContentType]
+		if validImageContentType && detectedExt != expectedExt {
+			log.Printf("Upload error: Image content-type mismatch - declared: %s (%s), detected: %s",
+				declaredContentType, expectedExt, detectedExt)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "File type mismatch. The file content does not match the declared type"})
+			return
+		}
+
+		if ext == ".bin" {
+			ext = detectedExt
+		}
 	}
 
 	// Generate cryptographically secure unique filename
@@ -2077,19 +2128,20 @@ func (s *Server) uploadFile(c *gin.Context) {
 	}
 
 	// Return the full URL where the file can be accessed
-	// Get server URL from environment or use default
-	// Note: For production deployments, SERVER_URL should be set to prevent
-	// Host header injection attacks. The Host header fallback is only for development.
 	serverURL := os.Getenv("SERVER_URL")
 	if serverURL == "" {
-		// Construct from request or use default (development only)
-		// WARNING: In production, always set SERVER_URL environment variable
-		// to avoid potential Host header injection vulnerabilities
-		scheme := "http"
-		if c.Request.TLS != nil {
-			scheme = "https"
+		scheme := strings.ToLower(strings.TrimSpace(c.GetHeader("X-Forwarded-Proto")))
+		if scheme == "" {
+			scheme = "http"
+			if c.Request.TLS != nil {
+				scheme = "https"
+			}
 		}
-		host := c.Request.Host
+
+		host := strings.TrimSpace(c.GetHeader("X-Forwarded-Host"))
+		if host == "" {
+			host = c.Request.Host
+		}
 		if host == "" {
 			host = "localhost:8080"
 		}
@@ -2098,7 +2150,7 @@ func (s *Server) uploadFile(c *gin.Context) {
 
 	fileURL := fmt.Sprintf("%s/uploads/%s", serverURL, filename)
 
-	log.Printf("File uploaded successfully: %s (size: %d bytes, type: %s)", filename, file.Size, contentType)
+	log.Printf("File uploaded successfully: %s (size: %d bytes, type: %s)", filename, file.Size, declaredContentType)
 
 	c.JSON(http.StatusOK, gin.H{
 		"url": fileURL,
