@@ -730,10 +730,14 @@ export const createContact = async (
 };
 
 export const uploadAttachment = async (
-  file: File
+  file: File,
+  deskId?: string
 ): Promise<UploadFileResponse> => {
   const formData = new FormData();
   formData.append("upload", file);
+  if (deskId) {
+    formData.append("desk_id", deskId);
+  }
 
   const response = await fetch(`${API_BASE_URL}/attachments`, {
     method: "POST",
@@ -742,11 +746,15 @@ export const uploadAttachment = async (
   });
 
   if (!response.ok) {
-    handleAuthError(response);
     const errorData = await response
       .json()
       .catch(() => ({ error: "Failed to upload attachment" }));
-    throw new Error(errorData.error || "Failed to upload attachment");
+    throw new Error(
+      errorData.error ||
+        (response.status === 401 || response.status === 403
+          ? "Your session could not upload attachments. Please sign in again."
+          : "Failed to upload attachment")
+    );
   }
 
   return response.json();
@@ -757,11 +765,15 @@ export const downloadAttachment = async (attachmentId: string): Promise<Blob> =>
     headers: getAuthHeaders(),
   });
   if (!response.ok) {
-    handleAuthError(response);
     const errorData = await response
       .json()
       .catch(() => ({ error: "Failed to download attachment" }));
-    throw new Error(errorData.error || "Failed to download attachment");
+    throw new Error(
+      errorData.error ||
+        (response.status === 401 || response.status === 403
+          ? "Your session could not access this attachment. Please sign in again."
+          : "Failed to download attachment")
+    );
   }
   return response.blob();
 };

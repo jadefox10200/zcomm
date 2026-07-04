@@ -32,10 +32,15 @@ var testPNGData = []byte{
 }
 
 // createAttachmentRequest creates an authenticated multipart form request with the given image data.
-func createAttachmentRequest(imageData []byte, filename string, token string) (*http.Request, error) {
+func createAttachmentRequest(imageData []byte, filename string, token string, deskID string) (*http.Request, error) {
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
-	
+	if deskID != "" {
+		if err := writer.WriteField("desk_id", deskID); err != nil {
+			return nil, err
+		}
+	}
+
 	// Create form file with proper content type header
 	h := make(textproto.MIMEHeader)
 	h.Set("Content-Disposition", `form-data; name="upload"; filename="`+filename+`"`)
@@ -44,12 +49,12 @@ func createAttachmentRequest(imageData []byte, filename string, token string) (*
 	if err != nil {
 		return nil, err
 	}
-	
+
 	_, err = io.Copy(part, bytes.NewReader(imageData))
 	if err != nil {
 		return nil, err
 	}
-	
+
 	err = writer.Close()
 	if err != nil {
 		return nil, err
@@ -59,7 +64,7 @@ func createAttachmentRequest(imageData []byte, filename string, token string) (*
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Host = "localhost:8080"
-	
+
 	return req, nil
 }
 
@@ -117,7 +122,7 @@ func TestUploadAttachment_ReturnsAttachmentMetadata(t *testing.T) {
 	defer os.Unsetenv("ATTACHMENT_DIR")
 
 	// Create request
-	req, err := createAttachmentRequest(testPNGData, "test.png", token)
+	req, err := createAttachmentRequest(testPNGData, "test.png", token, "")
 	if err != nil {
 		t.Fatalf("Failed to create upload request: %v", err)
 	}
@@ -161,14 +166,13 @@ func TestUploadAttachment_ReturnsAttachmentMetadata(t *testing.T) {
 	}
 }
 
-
 func TestDownloadAttachment_ReturnsFileContents(t *testing.T) {
-	server, token, _, _ := newAuthenticatedTestServer(t)
+	server, token, _, deskID := newAuthenticatedTestServer(t)
 	tmpDir := t.TempDir()
 	os.Setenv("ATTACHMENT_DIR", tmpDir)
 	defer os.Unsetenv("ATTACHMENT_DIR")
 
-	uploadReq, err := createAttachmentRequest(testPNGData, "test.png", token)
+	uploadReq, err := createAttachmentRequest(testPNGData, "test.png", token, "")
 	if err != nil {
 		t.Fatalf("Failed to create upload request: %v", err)
 	}
@@ -185,6 +189,32 @@ func TestDownloadAttachment_ReturnsFileContents(t *testing.T) {
 	}
 	attachmentID := uploadResponse["id"].(string)
 
+	conv := &models.Conversation{Subject: "Attachment test", DeskID: deskID}
+	if err := server.storage.CreateConversation(conv); err != nil {
+		t.Fatalf("Failed to create conversation: %v", err)
+	}
+
+	miv := &models.ConversationMiv{
+		ConversationID: conv.ID,
+		Owner:          deskID,
+		SeqNo:          1,
+		From:           deskID,
+		To:             deskID,
+		ArrowTo:        deskID,
+		Type:           models.MivTypeMiv,
+		Subject:        conv.Subject,
+		Body:           "encrypted-body",
+		State:          models.StateIN,
+		IsEncrypted:    true,
+	}
+	if err := server.storage.CreateConversationMiv(miv); err != nil {
+		t.Fatalf("Failed to create conversation miv: %v", err)
+	}
+
+	if err := server.storage.AssignAttachmentsToConversation(conv.ID, miv.SeqNo, []string{attachmentID}); err != nil {
+		t.Fatalf("Failed to assign attachment: %v", err)
+	}
+
 	downloadReq := httptest.NewRequest(http.MethodGet, "/api/attachments/"+attachmentID, nil)
 	downloadReq.Header.Set("Authorization", "Bearer "+token)
 	downloadReq.Host = "localhost:8080"
@@ -197,5 +227,42 @@ func TestDownloadAttachment_ReturnsFileContents(t *testing.T) {
 
 	if !bytes.Equal(downloadRec.Body.Bytes(), testPNGData) {
 		t.Fatalf("Downloaded attachment bytes did not match uploaded bytes")
+	}
+}
+
+func TestUploadAttachment_UsesDeskIDWhenNoActiveDesk(t *testing.T) {
+	server, token, accountID, deskID := newAuthenticatedTestServer(t)
+
+	account, err := server.storage.GetAccountByID(accountID)
+	if err != nil {
+		t.Fatalf("failed to load account: %v", err)
+	}
+	account.ActiveDesk = ""
+	if err := server.storage.UpdateAccount(account); err != nil {
+		t.Fatalf("failed to clear active desk: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	os.Setenv("ATTACHMENT_DIR", tmpDir)
+	defer os.Unsetenv("ATTACHMENT_DIR")
+
+	req, err := createAttachmentRequest(testPNGData, "desk-scoped.png", token, deskID)
+	if err != nil {
+		t.Fatalf("Failed to create upload request: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	server.router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("Expected upload to succeed with explicit desk_id, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var response map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+	if response["uploaded_by"] != deskID {
+		t.Fatalf("Expected uploaded_by to match provided desk_id, got: %v", response["uploaded_by"])
 	}
 }

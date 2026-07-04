@@ -1971,7 +1971,7 @@ func (s *Server) deleteContact(c *gin.Context) {
 
 // Upload handler - authenticated draft attachments
 func (s *Server) uploadAttachment(c *gin.Context) {
-	currentDeskID, err := s.getCurrentDeskID(c)
+	currentDeskID, err := s.getCurrentDeskIDForUpload(c)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
@@ -2218,25 +2218,57 @@ func (s *Server) downloadAttachment(c *gin.Context) {
 }
 
 func (s *Server) getCurrentDeskID(c *gin.Context) (string, error) {
-	accountIDValue, exists := c.Get("account_id")
-	if !exists {
-		return "", fmt.Errorf("not authenticated")
-	}
-
-	accountID, ok := accountIDValue.(string)
-	if !ok || accountID == "" {
-		return "", fmt.Errorf("invalid authentication context")
-	}
-
-	account, err := s.storage.GetAccountByID(accountID)
+	account, err := s.getAuthenticatedAccount(c)
 	if err != nil {
-		return "", fmt.Errorf("account not found")
+		return "", err
 	}
 	if account.ActiveDesk == "" {
 		return "", fmt.Errorf("no active desk selected")
 	}
 
 	return account.ActiveDesk, nil
+}
+
+func (s *Server) getCurrentDeskIDForUpload(c *gin.Context) (string, error) {
+	account, err := s.getAuthenticatedAccount(c)
+	if err != nil {
+		return "", err
+	}
+
+	requestedDeskID := strings.TrimSpace(c.PostForm("desk_id"))
+	if requestedDeskID != "" {
+		for _, deskID := range account.Desks {
+			if deskID == requestedDeskID {
+				return requestedDeskID, nil
+			}
+		}
+		return "", fmt.Errorf("desk does not belong to this account")
+	}
+
+	if account.ActiveDesk == "" {
+		return "", fmt.Errorf("no active desk selected")
+	}
+
+	return account.ActiveDesk, nil
+}
+
+func (s *Server) getAuthenticatedAccount(c *gin.Context) (*models.Account, error) {
+	accountIDValue, exists := c.Get("account_id")
+	if !exists {
+		return nil, fmt.Errorf("not authenticated")
+	}
+
+	accountID, ok := accountIDValue.(string)
+	if !ok || accountID == "" {
+		return nil, fmt.Errorf("invalid authentication context")
+	}
+
+	account, err := s.storage.GetAccountByID(accountID)
+	if err != nil {
+		return nil, fmt.Errorf("account not found")
+	}
+
+	return account, nil
 }
 
 func (s *Server) validateAttachmentsForDesk(deskID string, attachmentIDs []string) error {

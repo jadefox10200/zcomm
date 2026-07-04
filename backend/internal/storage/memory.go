@@ -296,6 +296,21 @@ func (s *MemoryStorage) GetDeskPrivateKey(id string) ([32]byte, error) {
 	return key, nil
 }
 
+// GetDeskEncryptedPrivateKey retrieves the private key and encrypts it with the provided password.
+func (s *MemoryStorage) GetDeskEncryptedPrivateKey(id string, password string) (string, error) {
+	privateKey, err := s.GetDeskPrivateKey(id)
+	if err != nil {
+		return "", err
+	}
+
+	encryptedKey, err := crypto.EncryptPrivateKey(privateKey[:], password)
+	if err != nil {
+		return "", fmt.Errorf("failed to encrypt private key: %w", err)
+	}
+
+	return encryptedKey, nil
+}
+
 // ListDesksByAccount retrieves all desks for an account
 func (s *MemoryStorage) ListDesksByAccount(accountID string) ([]*models.Desk, error) {
 	s.mu.RLock()
@@ -507,8 +522,9 @@ func (s *MemoryStorage) CreateConversationMiv(miv *models.ConversationMiv) error
 	return nil
 }
 
-// GetConversationMivs retrieves all mivs for a conversation
-func (s *MemoryStorage) GetConversationMivs(conversationID string, ownerID ...string) ([]*models.ConversationMiv, error) {
+// GetConversationMivs retrieves all non-deleted mivs for a conversation.
+// If deskID is provided, results are filtered to mivs owned by that desk.
+func (s *MemoryStorage) GetConversationMivs(conversationID string, deskID string) ([]*models.ConversationMiv, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -517,18 +533,18 @@ func (s *MemoryStorage) GetConversationMivs(conversationID string, ownerID ...st
 		return nil, fmt.Errorf("conversation not found: %s", conversationID)
 	}
 
-	// If ownerID is provided, filter by owner for security
-	if len(ownerID) > 0 && ownerID[0] != "" {
-		var filteredMivs []*models.ConversationMiv
-		for _, miv := range mivs {
-			if miv.Owner == ownerID[0] {
-				filteredMivs = append(filteredMivs, miv)
-			}
+	filteredMivs := make([]*models.ConversationMiv, 0, len(mivs))
+	for _, miv := range mivs {
+		if miv.Deleted {
+			continue
 		}
-		return filteredMivs, nil
+		if deskID != "" && miv.Owner != deskID {
+			continue
+		}
+		filteredMivs = append(filteredMivs, miv)
 	}
 
-	return mivs, nil
+	return filteredMivs, nil
 }
 
 // UpdateConversationMiv updates a miv in a conversation
@@ -603,6 +619,33 @@ func (s *MemoryStorage) MarkConversationMivsAsRead(conversationID string, deskID
 			mivs[i].ReadAt = &now
 		}
 	}
+
+	return nil
+}
+
+// DeleteConversationMivs soft-deletes all mivs in a conversation owned by deskID,
+// then archives the conversation to match sqlite behavior.
+func (s *MemoryStorage) DeleteConversationMivs(conversationID string, deskID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	mivs, exists := s.conversationMivs[conversationID]
+	if !exists {
+		return fmt.Errorf("conversation not found: %s", conversationID)
+	}
+
+	for i, miv := range mivs {
+		if miv.Owner == deskID {
+			mivs[i].Deleted = true
+		}
+	}
+
+	conv, exists := s.conversations[conversationID]
+	if !exists {
+		return fmt.Errorf("conversation not found: %s", conversationID)
+	}
+	conv.IsArchived = true
+	conv.UpdatedAt = time.Now()
 
 	return nil
 }

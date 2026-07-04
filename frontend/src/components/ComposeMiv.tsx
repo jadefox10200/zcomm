@@ -695,7 +695,7 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
       const uploadedFiles: UploadedAttachment[] = [];
 
       for (const file of files) {
-        const uploaded = await api.uploadAttachment(file);
+        const uploaded = await api.uploadAttachment(file, deskId);
         uploadedFiles.push(uploaded);
       }
 
