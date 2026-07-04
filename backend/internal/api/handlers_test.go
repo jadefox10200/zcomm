@@ -122,7 +122,7 @@ func TestUploadAttachment_ReturnsAttachmentMetadata(t *testing.T) {
 	defer os.Unsetenv("ATTACHMENT_DIR")
 
 	// Create request
-	req, err := createAttachmentRequest(testPNGData, "test.png", token, "")
+	req, err := createAttachmentRequest(testPNGData, "test.png", token, deskID)
 	if err != nil {
 		t.Fatalf("Failed to create upload request: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestDownloadAttachment_ReturnsFileContents(t *testing.T) {
 	os.Setenv("ATTACHMENT_DIR", tmpDir)
 	defer os.Unsetenv("ATTACHMENT_DIR")
 
-	uploadReq, err := createAttachmentRequest(testPNGData, "test.png", token, "")
+	uploadReq, err := createAttachmentRequest(testPNGData, "test.png", token, deskID)
 	if err != nil {
 		t.Fatalf("Failed to create upload request: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestDownloadAttachment_ReturnsFileContents(t *testing.T) {
 		t.Fatalf("Failed to assign attachment: %v", err)
 	}
 
-	downloadReq := httptest.NewRequest(http.MethodGet, "/api/attachments/"+attachmentID, nil)
+	downloadReq := httptest.NewRequest(http.MethodGet, "/api/attachments/"+attachmentID+"?desk_id="+deskID, nil)
 	downloadReq.Header.Set("Authorization", "Bearer "+token)
 	downloadReq.Host = "localhost:8080"
 	downloadRec := httptest.NewRecorder()
@@ -264,5 +264,74 @@ func TestUploadAttachment_UsesDeskIDWhenNoActiveDesk(t *testing.T) {
 	}
 	if response["uploaded_by"] != deskID {
 		t.Fatalf("Expected uploaded_by to match provided desk_id, got: %v", response["uploaded_by"])
+	}
+}
+
+func TestDownloadAttachment_UsesDeskIDWhenNoActiveDesk(t *testing.T) {
+	server, token, accountID, deskID := newAuthenticatedTestServer(t)
+	tmpDir := t.TempDir()
+	os.Setenv("ATTACHMENT_DIR", tmpDir)
+	defer os.Unsetenv("ATTACHMENT_DIR")
+
+	uploadReq, err := createAttachmentRequest(testPNGData, "test.png", token, deskID)
+	if err != nil {
+		t.Fatalf("Failed to create upload request: %v", err)
+	}
+
+	uploadRec := httptest.NewRecorder()
+	server.router.ServeHTTP(uploadRec, uploadReq)
+	if uploadRec.Code != http.StatusOK {
+		t.Fatalf("Expected upload to succeed, got %d: %s", uploadRec.Code, uploadRec.Body.String())
+	}
+
+	var uploadResponse map[string]interface{}
+	if err := json.Unmarshal(uploadRec.Body.Bytes(), &uploadResponse); err != nil {
+		t.Fatalf("Failed to parse upload response: %v", err)
+	}
+	attachmentID := uploadResponse["id"].(string)
+
+	conv := &models.Conversation{Subject: "Attachment test", DeskID: deskID}
+	if err := server.storage.CreateConversation(conv); err != nil {
+		t.Fatalf("Failed to create conversation: %v", err)
+	}
+
+	miv := &models.ConversationMiv{
+		ConversationID: conv.ID,
+		Owner:          deskID,
+		SeqNo:          1,
+		From:           deskID,
+		To:             deskID,
+		ArrowTo:        deskID,
+		Type:           models.MivTypeMiv,
+		Subject:        conv.Subject,
+		Body:           "encrypted-body",
+		State:          models.StateIN,
+		IsEncrypted:    true,
+	}
+	if err := server.storage.CreateConversationMiv(miv); err != nil {
+		t.Fatalf("Failed to create conversation miv: %v", err)
+	}
+
+	if err := server.storage.AssignAttachmentsToConversation(conv.ID, miv.SeqNo, []string{attachmentID}); err != nil {
+		t.Fatalf("Failed to assign attachment: %v", err)
+	}
+
+	account, err := server.storage.GetAccountByID(accountID)
+	if err != nil {
+		t.Fatalf("failed to load account: %v", err)
+	}
+	account.ActiveDesk = ""
+	if err := server.storage.UpdateAccount(account); err != nil {
+		t.Fatalf("failed to clear active desk: %v", err)
+	}
+
+	downloadReq := httptest.NewRequest(http.MethodGet, "/api/attachments/"+attachmentID+"?desk_id="+deskID, nil)
+	downloadReq.Header.Set("Authorization", "Bearer "+token)
+	downloadReq.Host = "localhost:8080"
+	downloadRec := httptest.NewRecorder()
+	server.router.ServeHTTP(downloadRec, downloadReq)
+
+	if downloadRec.Code != http.StatusOK {
+		t.Fatalf("Expected download to succeed with explicit desk_id, got %d: %s", downloadRec.Code, downloadRec.Body.String())
 	}
 }

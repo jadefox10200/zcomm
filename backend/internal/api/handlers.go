@@ -2172,7 +2172,7 @@ func (s *Server) uploadAttachment(c *gin.Context) {
 }
 
 func (s *Server) downloadAttachment(c *gin.Context) {
-	currentDeskID, err := s.getCurrentDeskID(c)
+	currentDeskID, err := s.getCurrentDeskIDForDownload(c)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
 		return
@@ -2236,20 +2236,42 @@ func (s *Server) getCurrentDeskIDForUpload(c *gin.Context) (string, error) {
 	}
 
 	requestedDeskID := strings.TrimSpace(c.PostForm("desk_id"))
-	if requestedDeskID != "" {
-		for _, deskID := range account.Desks {
-			if deskID == requestedDeskID {
-				return requestedDeskID, nil
-			}
-		}
+	if requestedDeskID == "" {
+		return "", fmt.Errorf("desk_id is required")
+	}
+
+	return s.resolveOwnedDeskID(account, requestedDeskID)
+}
+
+func (s *Server) getCurrentDeskIDForDownload(c *gin.Context) (string, error) {
+	account, err := s.getAuthenticatedAccount(c)
+	if err != nil {
+		return "", err
+	}
+
+	requestedDeskID := strings.TrimSpace(c.Query("desk_id"))
+	if requestedDeskID == "" {
+		return "", fmt.Errorf("desk_id is required")
+	}
+
+	return s.resolveOwnedDeskID(account, requestedDeskID)
+}
+
+func (s *Server) resolveOwnedDeskID(account *models.Account, requestedDeskID string) (string, error) {
+	normalizedDeskID := crypto.NormalizeDeskID(requestedDeskID)
+	if normalizedDeskID == "" {
+		return "", fmt.Errorf("desk_id is required")
+	}
+
+	desk, err := s.storage.GetDesk(normalizedDeskID)
+	if err != nil {
+		return "", fmt.Errorf("desk not found")
+	}
+	if desk.AccountID != account.ID {
 		return "", fmt.Errorf("desk does not belong to this account")
 	}
 
-	if account.ActiveDesk == "" {
-		return "", fmt.Errorf("no active desk selected")
-	}
-
-	return account.ActiveDesk, nil
+	return desk.ID, nil
 }
 
 func (s *Server) getAuthenticatedAccount(c *gin.Context) (*models.Account, error) {
