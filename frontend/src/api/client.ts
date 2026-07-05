@@ -72,6 +72,8 @@ const resolveApiBaseUrl = (): string => {
 
 const API_BASE_URL = resolveApiBaseUrl();
 
+let authRedirectInProgress = false;
+
 // Helper to get auth headers
 const getAuthHeaders = (): HeadersInit => {
   const token = localStorage.getItem("token");
@@ -95,12 +97,30 @@ const getUploadAuthHeaders = (): HeadersInit => {
 
 // Helper to handle auth errors
 const handleAuthError = (response: Response) => {
-  if (response.status === 401) {
-    localStorage.removeItem("token");
-    localStorage.removeItem("account");
-    window.location.href = "/";
-    throw new Error("Session expired. Please login again.");
+  if (response.status !== 401) {
+    return;
   }
+
+  localStorage.removeItem("token");
+  localStorage.removeItem("account");
+  localStorage.removeItem("encrypted_priv_keys");
+  sessionStorage.clear();
+
+  if (typeof window !== "undefined" && !authRedirectInProgress) {
+    authRedirectInProgress = true;
+
+    const message = "Your session expired. Please sign in again.";
+    try {
+      window.alert(message);
+    } catch {
+      // Ignore alert issues and continue with redirect.
+    }
+
+    const loginUrl = "/?session=expired";
+    window.location.replace(loginUrl);
+  }
+
+  throw new Error("Session expired. Please sign in again.");
 };
 
 // Identity API
@@ -744,6 +764,7 @@ export const uploadAttachment = async (
   });
 
   if (!response.ok) {
+    handleAuthError(response);
     const errorData = await response
       .json()
       .catch(() => ({ error: "Failed to upload attachment" }));
@@ -770,6 +791,7 @@ export const downloadAttachment = async (
     }
   );
   if (!response.ok) {
+    handleAuthError(response);
     const errorData = await response
       .json()
       .catch(() => ({ error: "Failed to download attachment" }));
