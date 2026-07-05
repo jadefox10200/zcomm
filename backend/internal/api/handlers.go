@@ -89,7 +89,7 @@ func requireAdminMiddleware(store StorageBackend) gin.HandlerFunc {
 }
 
 const (
-	maxFileSize       = 10 * 1024 * 1024 // 10MB
+	maxFileSize       = 25 * 1024 * 1024 // 25MB
 	maxFileExtLength  = 10               // Maximum length for file extension
 	maxFilenameLength = 100              // Maximum length for sanitized filename
 )
@@ -1985,10 +1985,10 @@ func (s *Server) uploadAttachment(c *gin.Context) {
 		return
 	}
 
-	// Validate file size (limit to 10MB)
+	// Validate file size (limit to 25MB)
 	if file.Size > maxFileSize {
 		log.Printf("Upload error: File too large - %d bytes (max: %d)", file.Size, maxFileSize)
-		c.JSON(http.StatusBadRequest, gin.H{"error": "File too large. Maximum size is 10MB"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "File too large. Maximum size is 25MB"})
 		return
 	}
 

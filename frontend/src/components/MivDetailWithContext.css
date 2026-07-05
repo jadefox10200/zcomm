@@ -355,6 +355,107 @@
   color: #333;
 }
 
+.attachments-header {
+  display: flex;
+  align-items: center;
+  margin: 14px 0 10px;
+}
+
+.attach-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border-radius: 999px;
+  border: 1px solid #c6c6c6;
+  background: #ffffff;
+  color: #1f1f1f;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.attach-btn:hover:not(:disabled) {
+  background: #f5f8ff;
+  border-color: #8fb4ff;
+  color: #174ea6;
+  box-shadow: 0 1px 2px rgba(23, 78, 166, 0.12);
+}
+
+.attach-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.uploaded-attachments-list {
+  margin-bottom: 14px;
+  padding: 10px;
+  border: 1px solid #e7ebf3;
+  border-radius: 10px;
+  background: #fcfdff;
+}
+
+.uploaded-attachments-list h4 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #4d5b73;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.uploaded-attachment-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid #e5e9f1;
+  border-radius: 8px;
+  background: #ffffff;
+  margin-bottom: 8px;
+}
+
+.uploaded-attachment-item:last-child {
+  margin-bottom: 0;
+}
+
+.uploaded-attachment-item > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #1f2937;
+  font-size: 13px;
+}
+
+.attachment-size {
+  font-size: 12px;
+  color: #6b7280;
+  white-space: nowrap;
+}
+
+.remove-attachment-btn {
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid #f2c3c3;
+  background: #fff6f6;
+  color: #a73f3f;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.remove-attachment-btn:hover {
+  border-color: #e49a9a;
+  background: #ffeceb;
+  color: #912f2f;
+}
+
 .reply-form textarea {
   width: 100%;
   padding: 12px;
@@ -374,6 +475,7 @@
 
 .reply-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
 }
 

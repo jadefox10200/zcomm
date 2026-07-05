@@ -749,10 +749,16 @@ export const createContact = async (
   return response.json();
 };
 
+export const MAX_ATTACHMENT_SIZE_BYTES = 25 * 1024 * 1024;
+
 export const uploadAttachment = async (
   file: File,
   deskId: string
 ): Promise<UploadFileResponse> => {
+  if (file.size > MAX_ATTACHMENT_SIZE_BYTES) {
+    throw new Error("File too large. Maximum size is 25MB");
+  }
+
   const formData = new FormData();
   formData.append("upload", file);
   formData.append("desk_id", deskId);
@@ -765,6 +771,11 @@ export const uploadAttachment = async (
 
   if (!response.ok) {
     handleAuthError(response);
+
+    if (response.status === 413) {
+      throw new Error("File too large. Maximum size is 25MB");
+    }
+
     const errorData = await response
       .json()
       .catch(() => ({ error: "Failed to upload attachment" }));

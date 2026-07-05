@@ -718,7 +718,11 @@ function App() {
     }
   };
 
-  const handleMivReply = async (body: string, isAck: boolean = false) => {
+  const handleMivReply = async (
+    body: string,
+    isAck: boolean = false,
+    attachmentIds: string[] = []
+  ) => {
     if (!activeDesk || !selectedMiv) return;
 
     try {
@@ -811,6 +815,7 @@ function App() {
           sender_body: senderEncryptedBody, // Sender's encrypted copy
           recipient_body: recipientEncryptedBody, // Recipient's encrypted copy
           is_ack: isAck,
+          attachment_ids: attachmentIds,
           font_family: activeDesk.font_family,
           font_size: activeDesk.font_size,
           cc_bodies: ccBodies,

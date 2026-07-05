@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { CKEditor } from "@ckeditor/ckeditor5-react";
 import ClassicEditor from "@ckeditor/ckeditor5-build-classic";
 import {
@@ -6,6 +6,7 @@ import {
   GetConversationResponse,
   Contact,
   Desk,
+  Attachment,
 } from "../types";
 import * as api from "../api/client";
 import { uploadPlugin } from "../utils/ckEditorUploadAdapter";
@@ -14,12 +15,13 @@ import MivPreview from "./MivPreview";
 import "./MivDetailWithContext.css";
 
 const CKEditorAny = CKEditor as any;
+type UploadedAttachment = Attachment;
 
 interface MivDetailWithContextProps {
   miv: ConversationMiv;
   currentDeskId: string;
   currentDesk: Desk;
-  onReply: (body: string, isAck?: boolean) => void;
+  onReply: (body: string, isAck?: boolean, attachmentIds?: string[]) => void;
   onForget?: () => void; // Callback when miv is forgotten
   onDeleteCc?: (conversationId: string) => void; // Callback when CC recipient deletes
   onBack?: () => void; // Callback to go back to basket view
@@ -43,6 +45,8 @@ function MivDetailWithContext({
   const [selectedMiv, setSelectedMiv] = useState<ConversationMiv>(miv);
   const [replyBody, setReplyBody] = useState("");
   const [showReply, setShowReply] = useState(false);
+  const [replyAttachments, setReplyAttachments] = useState<UploadedAttachment[]>([]);
+  const [isUploadingReplyAttachments, setIsUploadingReplyAttachments] = useState(false);
   const [showAckConfirm, setShowAckConfirm] = useState(false);
   const [ackBody, setAckBody] = useState("");
   const [showForgetConfirm, setShowForgetConfirm] = useState(false);
@@ -58,6 +62,7 @@ function MivDetailWithContext({
   const [decryptedBody, setDecryptedBody] = useState<string | null>(null);
   const [decryptionError, setDecryptionError] = useState<string | null>(null);
   const [isDecrypting, setIsDecrypting] = useState(false);
+  const replyAttachmentInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const loadData = async () => {
@@ -239,6 +244,7 @@ function MivDetailWithContext({
 
     const initialContent = parts.join("");
     setReplyBody(initialContent);
+    setReplyAttachments([]);
     setShowReply(true);
   };
 
@@ -271,6 +277,7 @@ function MivDetailWithContext({
       line_height: currentDesk?.line_height,
       via_index: 0,
       is_via_rejected: false,
+      attachments: replyAttachments,
     };
 
     // Update conversation immediately
@@ -283,11 +290,16 @@ function MivDetailWithContext({
     }
 
     setReplyBody("");
+    setReplyAttachments([]);
     setShowReply(false);
 
     // Then sync with server in background
     try {
-      await onReply(replyBody, false);
+      await onReply(
+        replyBody,
+        false,
+        replyAttachments.map((attachment) => attachment.id)
+      );
       // Reload conversation to get the real data from server
       const updatedConv = await api.getConversation(
         selectedMiv.conversation_id,
@@ -593,6 +605,48 @@ function MivDetailWithContext({
       console.error("Failed to download attachment:", err);
       alert("Failed to download attachment. Please try again.");
     }
+  };
+
+  const handleReplyAttachmentFiles = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const fileList = event.target.files;
+    if (!fileList || fileList.length === 0) {
+      return;
+    }
+
+    setIsUploadingReplyAttachments(true);
+    try {
+      const files = Array.from(fileList);
+      const uploadedFiles: UploadedAttachment[] = [];
+      for (const file of files) {
+        const uploaded = await api.uploadAttachment(file, currentDeskId);
+        uploadedFiles.push(uploaded);
+      }
+      setReplyAttachments((prev) => [...prev, ...uploadedFiles]);
+    } catch (err) {
+      console.error("Failed to upload reply attachment:", err);
+      alert("Failed to upload attachment. Please try again.");
+    } finally {
+      setIsUploadingReplyAttachments(false);
+      if (replyAttachmentInputRef.current) {
+        replyAttachmentInputRef.current.value = "";
+      }
+    }
+  };
+
+  const removeReplyAttachment = (index: number) => {
+    setReplyAttachments((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) {
+      return `${bytes} B`;
+    }
+    if (bytes < 1024 * 1024) {
+      return `${(bytes / 1024).toFixed(1)} KB`;
+    }
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   };
 
   const isContact = (deskIdRef: string) => {
@@ -1223,6 +1277,45 @@ function MivDetailWithContext({
                   }}
                 />
               </div>
+              <div className="attachments-header">
+                <input
+                  ref={replyAttachmentInputRef}
+                  type="file"
+                  multiple
+                  onChange={handleReplyAttachmentFiles}
+                  style={{ display: "none" }}
+                />
+                <button
+                  type="button"
+                  className="attach-btn"
+                  onClick={() => replyAttachmentInputRef.current?.click()}
+                  disabled={isUploadingReplyAttachments}
+                >
+                  {isUploadingReplyAttachments
+                    ? "Uploading..."
+                    : "Attach File(s)"}
+                </button>
+              </div>
+              {replyAttachments.length > 0 && (
+                <div className="uploaded-attachments-list">
+                  <h4>Reply Attachments:</h4>
+                  {replyAttachments.map((attachment, index) => (
+                    <div key={attachment.id} className="uploaded-attachment-item">
+                      <span>{attachment.original_filename}</span>
+                      <span className="attachment-size">
+                        {formatFileSize(attachment.size)}
+                      </span>
+                      <button
+                        type="button"
+                        className="remove-attachment-btn"
+                        onClick={() => removeReplyAttachment(index)}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
               <div className="reply-actions">
                 <button type="submit" className="btn btn-primary">
                   Send Reply
@@ -1252,6 +1345,7 @@ function MivDetailWithContext({
                   onClick={() => {
                     setShowReply(false);
                     setReplyBody("");
+                    setReplyAttachments([]);
                   }}
                 >
                   Cancel
