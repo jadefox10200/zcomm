@@ -750,6 +750,7 @@ export const createContact = async (
 };
 
 export const MAX_ATTACHMENT_SIZE_BYTES = 25 * 1024 * 1024;
+export const ATTACHMENT_UPLOAD_TIMEOUT_MS = 90_000;
 
 export const uploadAttachment = async (
   file: File,
@@ -763,17 +764,38 @@ export const uploadAttachment = async (
   formData.append("upload", file);
   formData.append("desk_id", deskId);
 
-  const response = await fetch(`${API_BASE_URL}/attachments`, {
-    method: "POST",
-    headers: getUploadAuthHeaders(),
-    body: formData,
-  });
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(
+    () => controller.abort(),
+    ATTACHMENT_UPLOAD_TIMEOUT_MS
+  );
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}/attachments`, {
+      method: "POST",
+      headers: getUploadAuthHeaders(),
+      body: formData,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error(
+        "Upload timed out after 90 seconds. Please try again."
+      );
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 
   if (!response.ok) {
     handleAuthError(response);
 
     if (response.status === 413) {
-      throw new Error("File too large. Maximum size is 25MB");
+      throw new Error(
+        "Upload rejected by server (413 Request Entity Too Large). The active server/proxy limit appears lower than 25MB."
+      );
     }
 
     const errorData = await response

@@ -626,7 +626,11 @@ function MivDetailWithContext({
       setReplyAttachments((prev) => [...prev, ...uploadedFiles]);
     } catch (err) {
       console.error("Failed to upload reply attachment:", err);
-      alert("Failed to upload attachment. Please try again.");
+      alert(
+        err instanceof Error
+          ? err.message
+          : "Failed to upload attachment. Please try again."
+      );
     } finally {
       setIsUploadingReplyAttachments(false);
       if (replyAttachmentInputRef.current) {
