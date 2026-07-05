@@ -750,11 +750,18 @@ export const createContact = async (
 };
 
 export const MAX_ATTACHMENT_SIZE_BYTES = 25 * 1024 * 1024;
-export const ATTACHMENT_UPLOAD_TIMEOUT_MS = 90_000;
+export const ATTACHMENT_UPLOAD_TIMEOUT_MS = 300_000;
+
+export interface UploadProgress {
+  loaded: number;
+  total: number;
+  percent: number;
+}
 
 export const uploadAttachment = async (
   file: File,
-  deskId: string
+  deskId: string,
+  onProgress?: (progress: UploadProgress) => void
 ): Promise<UploadFileResponse> => {
   if (file.size > MAX_ATTACHMENT_SIZE_BYTES) {
     throw new Error("File too large. Maximum size is 25MB");
@@ -764,52 +771,98 @@ export const uploadAttachment = async (
   formData.append("upload", file);
   formData.append("desk_id", deskId);
 
-  const controller = new AbortController();
-  const timeoutId = window.setTimeout(
-    () => controller.abort(),
-    ATTACHMENT_UPLOAD_TIMEOUT_MS
-  );
+  return new Promise<UploadFileResponse>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${API_BASE_URL}/attachments`, true);
+    xhr.timeout = ATTACHMENT_UPLOAD_TIMEOUT_MS;
 
-  let response: Response;
-  try {
-    response = await fetch(`${API_BASE_URL}/attachments`, {
-      method: "POST",
-      headers: getUploadAuthHeaders(),
-      body: formData,
-      signal: controller.signal,
+    const uploadHeaders = getUploadAuthHeaders();
+    Object.entries(uploadHeaders).forEach(([key, value]) => {
+      if (typeof value === "string") {
+        xhr.setRequestHeader(key, value);
+      }
     });
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") {
-      throw new Error(
-        "Upload timed out after 90 seconds. Please try again."
+
+    xhr.upload.onprogress = (event: ProgressEvent<EventTarget>) => {
+      if (!onProgress || !event.lengthComputable) {
+        return;
+      }
+
+      const percent = Math.min(
+        100,
+        Math.round((event.loaded / event.total) * 100)
       );
-    }
-    throw error;
-  } finally {
-    window.clearTimeout(timeoutId);
-  }
+      onProgress({
+        loaded: event.loaded,
+        total: event.total,
+        percent,
+      });
+    };
 
-  if (!response.ok) {
-    handleAuthError(response);
+    xhr.onerror = () => {
+      reject(new Error("Failed to upload attachment"));
+    };
 
-    if (response.status === 413) {
-      throw new Error(
-        "Upload rejected by server (413 Request Entity Too Large). The active server/proxy limit appears lower than 25MB."
-      );
-    }
+    xhr.ontimeout = () => {
+      reject(new Error("Upload timed out after 5 minutes. Please try again."));
+    };
 
-    const errorData = await response
-      .json()
-      .catch(() => ({ error: "Failed to upload attachment" }));
-    throw new Error(
-      errorData.error ||
-        (response.status === 401 || response.status === 403
-          ? "Your session could not upload attachments. Please sign in again."
-          : "Failed to upload attachment")
-    );
-  }
+    xhr.onload = () => {
+      const status = xhr.status;
+      const responseText = xhr.responseText || "";
 
-  return response.json();
+      if (status >= 200 && status < 300) {
+        try {
+          const parsed = JSON.parse(responseText) as UploadFileResponse;
+          resolve(parsed);
+        } catch {
+          reject(new Error("Failed to parse upload response"));
+        }
+        return;
+      }
+
+      const authResponse = new Response(responseText, { status });
+      try {
+        handleAuthError(authResponse);
+      } catch (err) {
+        reject(
+          err instanceof Error
+            ? err
+            : new Error("Session expired. Please sign in again.")
+        );
+        return;
+      }
+
+      if (status === 413) {
+        reject(
+          new Error(
+            "Upload rejected by server (413 Request Entity Too Large). The active server/proxy limit appears lower than 25MB."
+          )
+        );
+        return;
+      }
+
+      if (status === 401 || status === 403) {
+        reject(
+          new Error(
+            "Your session could not upload attachments. Please sign in again."
+          )
+        );
+        return;
+      }
+
+      try {
+        const errorData = responseText
+          ? (JSON.parse(responseText) as { error?: string })
+          : null;
+        reject(new Error(errorData?.error || "Failed to upload attachment"));
+      } catch {
+        reject(new Error("Failed to upload attachment"));
+      }
+    };
+
+    xhr.send(formData);
+  });
 };
 
 export const downloadAttachment = async (

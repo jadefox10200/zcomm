@@ -667,6 +667,59 @@ func (s *SQLiteStorage) AssignAttachmentsToConversation(conversationID string, s
 	return err
 }
 
+func (s *SQLiteStorage) DeleteAttachmentsByConversation(conversationID string) error {
+	_, err := s.db.Exec(`
+		DELETE FROM attachments
+		WHERE conversation_id = ?
+	`, conversationID)
+	return err
+}
+
+func (s *SQLiteStorage) ListOrphanAttachmentsBefore(cutoff time.Time) ([]*models.Attachment, error) {
+	rows, err := s.db.Query(`
+		SELECT id, conversation_id, seq_no, uploaded_by, original_filename, stored_filename, content_type, size, created_at
+		FROM attachments
+		WHERE (conversation_id IS NULL OR conversation_id = '') AND created_at < ?
+		ORDER BY created_at ASC
+	`, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	orphans := make([]*models.Attachment, 0)
+	for rows.Next() {
+		attachment := &models.Attachment{}
+		if err := rows.Scan(&attachment.ID, &attachment.ConversationID, &attachment.SeqNo, &attachment.UploadedBy, &attachment.OriginalFilename, &attachment.StoredFilename, &attachment.ContentType, &attachment.Size, &attachment.CreatedAt); err != nil {
+			return nil, err
+		}
+		orphans = append(orphans, attachment)
+	}
+
+	return orphans, rows.Err()
+}
+
+func (s *SQLiteStorage) DeleteAttachmentsByID(attachmentIDs []string) error {
+	if len(attachmentIDs) == 0 {
+		return nil
+	}
+
+	placeholders := make([]string, len(attachmentIDs))
+	args := make([]interface{}, 0, len(attachmentIDs))
+	for i, attachmentID := range attachmentIDs {
+		placeholders[i] = "?"
+		args = append(args, attachmentID)
+	}
+
+	query := fmt.Sprintf(`
+		DELETE FROM attachments
+		WHERE id IN (%s) AND (conversation_id IS NULL OR conversation_id = '')
+	`, strings.Join(placeholders, ","))
+
+	_, err := s.db.Exec(query, args...)
+	return err
+}
+
 func (s *SQLiteStorage) GetConversationMiv(mivID string) (*models.ConversationMiv, error) {
 	miv := &models.ConversationMiv{}
 	var readAt sql.NullTime

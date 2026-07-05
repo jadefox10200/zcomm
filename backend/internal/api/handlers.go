@@ -1620,6 +1620,31 @@ func (s *Server) archiveConversation(c *gin.Context) {
 		return
 	}
 
+	attachments, err := s.storage.ListAttachmentsByConversation(conversationID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load conversation attachments"})
+		return
+	}
+
+	attachmentDir := os.Getenv("ATTACHMENT_DIR")
+	if attachmentDir == "" {
+		attachmentDir = "./attachments"
+	}
+
+	for _, attachment := range attachments {
+		filePath := filepath.Join(attachmentDir, attachment.StoredFilename)
+		if err := os.Remove(filePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			log.Printf("Archive cleanup error: failed to delete attachment file %s: %v", attachment.StoredFilename, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to remove archived attachment files"})
+			return
+		}
+	}
+
+	if err := s.storage.DeleteAttachmentsByConversation(conversationID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to remove archived attachment metadata"})
+		return
+	}
+
 	// Archive the conversation
 	conv.IsArchived = true
 	if err := s.storage.UpdateConversation(conv); err != nil {

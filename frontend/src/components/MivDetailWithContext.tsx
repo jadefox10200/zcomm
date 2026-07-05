@@ -47,6 +47,11 @@ function MivDetailWithContext({
   const [showReply, setShowReply] = useState(false);
   const [replyAttachments, setReplyAttachments] = useState<UploadedAttachment[]>([]);
   const [isUploadingReplyAttachments, setIsUploadingReplyAttachments] = useState(false);
+  const [replyAttachmentUploadSeconds, setReplyAttachmentUploadSeconds] = useState(0);
+  const [replyAttachmentUploadProgress, setReplyAttachmentUploadProgress] =
+    useState<number>(0);
+  const [replyAttachmentUploadFileName, setReplyAttachmentUploadFileName] =
+    useState<string>("");
   const [showAckConfirm, setShowAckConfirm] = useState(false);
   const [ackBody, setAckBody] = useState("");
   const [showForgetConfirm, setShowForgetConfirm] = useState(false);
@@ -63,6 +68,19 @@ function MivDetailWithContext({
   const [decryptionError, setDecryptionError] = useState<string | null>(null);
   const [isDecrypting, setIsDecrypting] = useState(false);
   const replyAttachmentInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!isUploadingReplyAttachments) {
+      setReplyAttachmentUploadSeconds(0);
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setReplyAttachmentUploadSeconds((prev) => prev + 1);
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [isUploadingReplyAttachments]);
 
   useEffect(() => {
     const loadData = async () => {
@@ -616,11 +634,24 @@ function MivDetailWithContext({
     }
 
     setIsUploadingReplyAttachments(true);
+    setReplyAttachmentUploadProgress(0);
+    setReplyAttachmentUploadFileName("");
     try {
       const files = Array.from(fileList);
       const uploadedFiles: UploadedAttachment[] = [];
       for (const file of files) {
-        const uploaded = await api.uploadAttachment(file, currentDeskId);
+        setReplyAttachmentUploadFileName(file.name);
+        setReplyAttachmentUploadProgress(0);
+
+        const uploaded = await api.uploadAttachment(
+          file,
+          currentDeskId,
+          (progress) => {
+            setReplyAttachmentUploadProgress(progress.percent);
+          }
+        );
+
+        setReplyAttachmentUploadProgress(100);
         uploadedFiles.push(uploaded);
       }
       setReplyAttachments((prev) => [...prev, ...uploadedFiles]);
@@ -633,6 +664,8 @@ function MivDetailWithContext({
       );
     } finally {
       setIsUploadingReplyAttachments(false);
+      setReplyAttachmentUploadProgress(0);
+      setReplyAttachmentUploadFileName("");
       if (replyAttachmentInputRef.current) {
         replyAttachmentInputRef.current.value = "";
       }
@@ -1295,11 +1328,19 @@ function MivDetailWithContext({
                   onClick={() => replyAttachmentInputRef.current?.click()}
                   disabled={isUploadingReplyAttachments}
                 >
+                  {isUploadingReplyAttachments && (
+                    <span className="upload-spinner" aria-hidden="true" />
+                  )}
                   {isUploadingReplyAttachments
-                    ? "Uploading..."
+                    ? `Uploading ${replyAttachmentUploadProgress}%`
                     : "Attach File(s)"}
                 </button>
               </div>
+              {isUploadingReplyAttachments && (
+                <div className="attachment-upload-status">
+                  Uploading {replyAttachmentUploadFileName || "file"} ({replyAttachmentUploadProgress}%)... {replyAttachmentUploadSeconds}s elapsed.
+                </div>
+              )}
               {replyAttachments.length > 0 && (
                 <div className="uploaded-attachments-list">
                   <h4>Reply Attachments:</h4>

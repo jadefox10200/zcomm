@@ -738,6 +738,54 @@ func (s *MemoryStorage) AssignAttachmentsToConversation(conversationID string, s
 	return nil
 }
 
+func (s *MemoryStorage) DeleteAttachmentsByConversation(conversationID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for attachmentID, attachment := range s.attachments {
+		if attachment.ConversationID == conversationID {
+			delete(s.attachments, attachmentID)
+		}
+	}
+
+	delete(s.attachmentsByConv, conversationID)
+
+	return nil
+}
+
+func (s *MemoryStorage) ListOrphanAttachmentsBefore(cutoff time.Time) ([]*models.Attachment, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	orphans := make([]*models.Attachment, 0)
+	for _, attachment := range s.attachments {
+		if attachment.ConversationID == "" && attachment.CreatedAt.Before(cutoff) {
+			orphans = append(orphans, attachment)
+		}
+	}
+
+	return orphans, nil
+}
+
+func (s *MemoryStorage) DeleteAttachmentsByID(attachmentIDs []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, attachmentID := range attachmentIDs {
+		attachment, exists := s.attachments[attachmentID]
+		if !exists {
+			continue
+		}
+		if attachment.ConversationID != "" {
+			continue
+		}
+
+		delete(s.attachments, attachmentID)
+	}
+
+	return nil
+}
+
 // Notification methods
 
 // CreateNotification creates a new notification

@@ -2,8 +2,11 @@ package api
 
 import (
 	"encoding/base64"
+	"errors"
+	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -62,6 +65,9 @@ type StorageBackend interface {
 	GetAttachment(id string) (*models.Attachment, error)
 	ListAttachmentsByConversation(conversationID string) ([]*models.Attachment, error)
 	AssignAttachmentsToConversation(conversationID string, seqNo int, attachmentIDs []string) error
+	DeleteAttachmentsByConversation(conversationID string) error
+	ListOrphanAttachmentsBefore(cutoff time.Time) ([]*models.Attachment, error)
+	DeleteAttachmentsByID(attachmentIDs []string) error
 
 	// Contact methods
 	CreateContact(contact *models.Contact) error
@@ -99,6 +105,7 @@ func NewServer() *Server {
 	}
 
 	s.setupRoutes()
+	s.startAttachmentCleanupJob()
 
 	// Load test users for development
 	// if err := s.loadTestUsers(); err != nil {
@@ -240,6 +247,90 @@ func (s *Server) Run(addr string) error {
 // RunTLS starts the API server with HTTPS
 func (s *Server) RunTLS(addr, certFile, keyFile string) error {
 	return s.router.RunTLS(addr, certFile, keyFile)
+}
+
+func (s *Server) startAttachmentCleanupJob() {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("ATTACHMENT_CLEANUP_DISABLED")), "true") {
+		log.Printf("Attachment cleanup disabled via ATTACHMENT_CLEANUP_DISABLED")
+		return
+	}
+
+	maxAge := parseDurationEnv("ATTACHMENT_ORPHAN_MAX_AGE", 24*time.Hour)
+	interval := parseDurationEnv("ATTACHMENT_CLEANUP_INTERVAL", time.Hour)
+
+	log.Printf("Attachment cleanup enabled (max age: %s, interval: %s)", maxAge, interval)
+
+	go func() {
+		s.cleanupOrphanAttachments(maxAge)
+
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			s.cleanupOrphanAttachments(maxAge)
+		}
+	}()
+}
+
+func parseDurationEnv(key string, fallback time.Duration) time.Duration {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+
+	parsed, err := time.ParseDuration(raw)
+	if err != nil || parsed <= 0 {
+		log.Printf("Invalid %s=%q, using default %s", key, raw, fallback)
+		return fallback
+	}
+
+	return parsed
+}
+
+func (s *Server) cleanupOrphanAttachments(maxAge time.Duration) {
+	cutoff := time.Now().Add(-maxAge)
+	orphans, err := s.storage.ListOrphanAttachmentsBefore(cutoff)
+	if err != nil {
+		log.Printf("Attachment cleanup failed to list orphan attachments: %v", err)
+		return
+	}
+
+	if len(orphans) == 0 {
+		return
+	}
+
+	attachmentDir := os.Getenv("ATTACHMENT_DIR")
+	if attachmentDir == "" {
+		attachmentDir = "./attachments"
+	}
+
+	deletableIDs := make([]string, 0, len(orphans))
+	skipped := 0
+
+	for _, orphan := range orphans {
+		filePath := filepath.Join(attachmentDir, orphan.StoredFilename)
+		if err := os.Remove(filePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			log.Printf("Attachment cleanup failed to remove file %s: %v", orphan.StoredFilename, err)
+			skipped++
+			continue
+		}
+
+		deletableIDs = append(deletableIDs, orphan.ID)
+	}
+
+	if len(deletableIDs) == 0 {
+		if skipped > 0 {
+			log.Printf("Attachment cleanup skipped %d orphan attachments due to file errors", skipped)
+		}
+		return
+	}
+
+	if err := s.storage.DeleteAttachmentsByID(deletableIDs); err != nil {
+		log.Printf("Attachment cleanup failed to delete metadata: %v", err)
+		return
+	}
+
+	log.Printf("Attachment cleanup removed %d orphan attachments (skipped %d)", len(deletableIDs), skipped)
 }
 
 // Identity handlers

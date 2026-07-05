@@ -58,6 +58,11 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
   const [showAddContactForm, setShowAddContactForm] = useState(false);
   const [attachments, setAttachments] = useState<UploadedAttachment[]>([]);
   const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
+  const [attachmentUploadSeconds, setAttachmentUploadSeconds] = useState(0);
+  const [attachmentUploadProgress, setAttachmentUploadProgress] =
+    useState<number>(0);
+  const [attachmentUploadFileName, setAttachmentUploadFileName] =
+    useState<string>("");
   const [newContactForm, setNewContactForm] = useState({
     name: "",
     desk_id_ref: "",
@@ -88,6 +93,19 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
 
     loadContacts();
   }, [deskId]);
+
+  useEffect(() => {
+    if (!isUploadingAttachments) {
+      setAttachmentUploadSeconds(0);
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setAttachmentUploadSeconds((prev) => prev + 1);
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [isUploadingAttachments]);
 
   // Auto-insert salutation and signature when recipient is selected
   useEffect(() => {
@@ -689,13 +707,22 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
 
     setError(null);
     setIsUploadingAttachments(true);
+    setAttachmentUploadProgress(0);
+    setAttachmentUploadFileName("");
 
     try {
       const files = Array.from(fileList);
       const uploadedFiles: UploadedAttachment[] = [];
 
       for (const file of files) {
-        const uploaded = await api.uploadAttachment(file, deskId);
+        setAttachmentUploadFileName(file.name);
+        setAttachmentUploadProgress(0);
+
+        const uploaded = await api.uploadAttachment(file, deskId, (progress) => {
+          setAttachmentUploadProgress(progress.percent);
+        });
+
+        setAttachmentUploadProgress(100);
         uploadedFiles.push(uploaded);
       }
 
@@ -709,6 +736,8 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
       );
     } finally {
       setIsUploadingAttachments(false);
+      setAttachmentUploadProgress(0);
+      setAttachmentUploadFileName("");
       if (attachmentInputRef.current) {
         attachmentInputRef.current.value = "";
       }
@@ -1038,7 +1067,10 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
               onClick={() => attachmentInputRef.current?.click()}
               disabled={isSending || isUploadingAttachments}
             >
-              {isUploadingAttachments ? "Uploading..." : "+ Attach Files"}
+              {isUploadingAttachments && <span className="upload-spinner" aria-hidden="true" />}
+              {isUploadingAttachments
+                ? `Uploading ${attachmentUploadProgress}%`
+                : "+ Attach Files"}
             </button>
           </div>
           <input
@@ -1073,7 +1105,9 @@ const ComposeMiv: React.FC<ComposeMivProps> = ({
             </div>
           )}
           <span className="help-text">
-            {attachments.length > 0
+            {isUploadingAttachments
+              ? `Uploading ${attachmentUploadFileName || "file"} (${attachmentUploadProgress}%)... ${attachmentUploadSeconds}s elapsed.`
+              : attachments.length > 0
               ? `${attachments.length} attachment(s) will be included with this message.`
               : "Attach documents, PDFs, images, spreadsheets, and other files."}
           </span>

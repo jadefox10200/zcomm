@@ -390,6 +390,27 @@
   cursor: not-allowed;
 }
 
+.upload-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(0, 0, 0, 0.2);
+  border-top-color: #174ea6;
+  border-radius: 50%;
+  animation: upload-spin 0.8s linear infinite;
+}
+
+@keyframes upload-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.attachment-upload-status {
+  margin: 6px 0 10px;
+  font-size: 12px;
+  color: #4d5b73;
+}
+
 .uploaded-attachments-list {
   margin-bottom: 14px;
   padding: 10px;
