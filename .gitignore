@@ -64,3 +64,8 @@ CC_FIX_TESTING.md
 uploads/
 backend/uploads/
 frontend/uploads/
+
+# Attachments
+attachments/
+backend/attachments/
+frontend/attachments/
