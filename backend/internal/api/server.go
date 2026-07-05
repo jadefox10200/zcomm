@@ -3,6 +3,8 @@ package api
 import (
 	"encoding/base64"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -121,19 +123,21 @@ func NewServerWithStorage(storageBackend StorageBackend) *Server {
 
 // setupRoutes configures all API routes
 func (s *Server) setupRoutes() {
-	// Enable CORS for frontend
-	s.router.Use(func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+	// In production nginx handles CORS; keep backend CORS only for non-production direct access.
+	if strings.ToLower(os.Getenv("API_ENV")) != "production" {
+		s.router.Use(func(c *gin.Context) {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+			c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
-			return
-		}
+			if c.Request.Method == "OPTIONS" {
+				c.AbortWithStatus(204)
+				return
+			}
 
-		c.Next()
-	})
+			c.Next()
+		})
+	}
 
 	api := s.router.Group("/api")
 	{
